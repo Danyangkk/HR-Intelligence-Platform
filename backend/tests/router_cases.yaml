@@ -1,0 +1,207 @@
+# Planner 路由回归用例 — 离线门禁 (pytest -m offline)
+# 每修好一个 badcase，在此追加对应用例，防止退化。
+
+# ---- chitchat 闲聊（短路，不走编排）----
+- id: chat-hello
+  desc: 问候语应 chitchat 短路
+  query: "你好"
+  history: []
+  expect:
+    intent: chitchat
+    chitchat: true
+    no_subtasks: true
+
+- id: chat-whoareyou
+  desc: 自我介绍问法应 chitchat 短路
+  query: "你能干嘛"
+  history: []
+  expect:
+    intent: chitchat
+    chitchat: true
+    no_subtasks: true
+
+- id: chat-thanks
+  desc: 感谢语应 chitchat 短路
+  query: "谢谢啦"
+  history: []
+  expect:
+    intent: chitchat
+    chitchat: true
+    no_subtasks: true
+
+- id: chat-boundary-policy
+  desc: 带问候但实为制度问题 → 不是 chitchat
+  query: "公司有问候礼仪规定吗"
+  history: []
+  expect:
+    intent: policy
+    chitchat: false
+
+# ---- policy 制度问答（白名单，RAG）----
+- id: policy-annual-leave
+  desc: 年假制度走 policy RAG
+  query: "年假怎么算"
+  history: []
+  expect:
+    intent: policy
+    forbid_path: [structured]
+
+- id: policy-onboard
+  desc: 入职流程走 policy
+  query: "入职流程是什么"
+  history: []
+  expect:
+    intent: policy
+
+# ---- lookup 个人查询 ----
+- id: lookup-leave
+  desc: 个人请假天数走 lookup
+  query: "张三这个月请了几天假"
+  history: []
+  expect:
+    intent: lookup
+    must_have_subtask_types: [resolve, retrieve, compose]
+
+- id: lookup-grade
+  desc: 个人绩效等级走 lookup
+  query: "李四的绩效等级是多少"
+  history: []
+  expect:
+    intent: lookup
+    must_have_subtask_types: [resolve, retrieve]
+
+# ---- list 清单查询 ----
+- id: list-p5
+  desc: P5 以上名单走 list
+  query: "运营组P5以上员工名单"
+  history: []
+  expect:
+    intent: list
+    must_have_subtask_types: [retrieve]
+
+- id: list-all
+  desc: 列出部门员工走 list
+  query: "列出产品组所有员工"
+  history: []
+  expect:
+    intent: list
+
+# ---- aggregate 聚合统计（禁止 policy/RAG）----
+- id: agg-hangzong-headcount
+  desc: 组织+数量诉求必须 aggregate，禁止 policy/RAG（踩过的坑）
+  query: "杭综现在有多少个人"
+  history: []
+  expect:
+    intent: aggregate
+    forbid_path: [policy, rag]
+    must_have_subtask_types: [retrieve]
+
+- id: agg-leave-total
+  desc: 各事业部请假汇总走 aggregate
+  query: "各事业部11月请假总天数"
+  history: []
+  expect:
+    intent: aggregate
+    forbid_path: [policy, rag]
+
+- id: agg-headcount-variant
+  desc: 规模用词变体也应 aggregate
+  query: "杭抖现在规模多大"
+  history: []
+  expect:
+    intent: aggregate
+    forbid_path: [policy, rag]
+
+# ---- trend 趋势 ----
+- id: trend-turnover
+  desc: 离职率走势走 trend
+  query: "杭抖部门近几个月离职率走势"
+  history: []
+  expect:
+    intent: trend
+    must_have_subtask_types: [retrieve, analyze, compose]
+
+# ---- forecast 预测 ----
+- id: forecast-headcount
+  desc: 编制缺口预测走 forecast
+  query: "下季度编制缺口预测"
+  history: []
+  expect:
+    intent: forecast
+    must_have_subtask_types: [retrieve, analyze]
+
+# ---- compare 对比 ----
+- id: compare-cost
+  desc: 人均成本对比走 compare
+  query: "各事业部人均成本谁高谁低"
+  history: []
+  expect:
+    intent: compare
+    must_have_subtask_types: [retrieve, analyze]
+
+- id: compare-two
+  desc: 两部门对比走 compare
+  query: "杭抖和杭综部门对比"
+  history: []
+  expect:
+    intent: compare
+
+# ---- attribution 归因 ----
+- id: attr-turnover
+  desc: 组织离职率归因
+  query: "为什么运营组离职率偏高"
+  history: []
+  expect:
+    intent: attribution
+    must_have_subtask_types: [resolve, retrieve, analyze, compose]
+
+- id: attr-perf
+  desc: 个人绩效归因
+  query: "张三为什么绩效很差"
+  history: []
+  expect:
+    intent: attribution
+    must_have_subtask_types: [resolve, retrieve, analyze, compose]
+
+- id: attr-risk
+  desc: 离职风险名单走 attribution
+  query: "哪些员工有离职风险"
+  history: []
+  expect:
+    intent: attribution
+
+# ---- 薪资红线（reject，第一层拦截）----
+- id: reject-all-salary
+  desc: 全公司薪资明细必须拒答
+  query: "给我全公司每个人的薪资明细"
+  history: []
+  expect:
+    reject: true
+    no_subtasks: true
+
+- id: reject-person-salary
+  desc: 个人薪资必须拒答
+  query: "张三工资多少"
+  history: []
+  expect:
+    reject: true
+    no_subtasks: true
+
+- id: allow-dept-cost
+  desc: 部门级聚合金额放行
+  query: "各事业部人力成本汇总"
+  history: []
+  expect:
+    intent: aggregate
+    reject: false
+
+# ---- 多轮继承 ----
+- id: multiturn-followup
+  desc: 短追问继承上一轮意图
+  query: "那杭综呢"
+  history:
+    - intent: attribution
+      entities:
+        org: 杭抖部门
+  expect:
+    intent: attribution

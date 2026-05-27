@@ -1,0 +1,10 @@
+{
+  "stage": "development",
+  "mode": "feature_development",
+  "design_ready": true,
+  "development_ready": true,
+  "architecture_complete": true,
+  "current_task": "T-030",
+  "blocked": false,
+  "notes": "T-027～T-029 完成；T-030 待填入飞书 11 表真实 table_id"
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "projects_root": ".",
+  "active_project_id": "hr-agent",
+  "projects": [
+    {
+      "id": "hr-agent",
+      "name": "HR Agent",
+      "path": "/Users/kk/Desktop/HR-Agent",
+      "project_type": "web",
+      "status": "development"
+    }
+  ]
+}

@@ -1,0 +1,306 @@
+[
+  {
+    "id": "headcount_on_date",
+    "name": "在职人数",
+    "category": "人员与流动",
+    "formula": "统计时点状态=在职的员工数",
+    "unit": "count",
+    "value_type": "count",
+    "inputs": ["在职人数"],
+    "notes": "时点值"
+  },
+  {
+    "id": "headcount_period_start",
+    "name": "期初在职",
+    "category": "人员与流动",
+    "formula": "周期首日在职人数",
+    "unit": "count",
+    "value_type": "count",
+    "inputs": ["期初在职"],
+    "notes": "时点值"
+  },
+  {
+    "id": "headcount_period_end",
+    "name": "期末在职",
+    "category": "人员与流动",
+    "formula": "周期末日在职人数",
+    "unit": "count",
+    "value_type": "count",
+    "inputs": ["期末在职"],
+    "notes": "时点值"
+  },
+  {
+    "id": "avg_headcount",
+    "name": "平均在职人数",
+    "category": "人员与流动",
+    "formula": "(期初在职 + 期末在职) / 2",
+    "unit": "count",
+    "value_type": "average",
+    "inputs": ["期初在职", "期末在职"],
+    "notes": "流动率分母默认用此"
+  },
+  {
+    "id": "hire_rate",
+    "name": "入职率",
+    "category": "人员与流动",
+    "formula": "期间入职人数 / 期间平均在职人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["期间入职人数", "期间平均在职人数"],
+    "notes": ""
+  },
+  {
+    "id": "turnover_rate",
+    "name": "离职率",
+    "category": "人员与流动",
+    "formula": "期间离职人数 / 期间平均在职人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["期间离职人数", "期间平均在职人数"],
+    "aliases": ["turnover_rate", "人员流失率"],
+    "notes": "默认口径；离职含主动+被动"
+  },
+  {
+    "id": "voluntary_turnover_rate",
+    "name": "主动离职率",
+    "category": "人员与流动",
+    "formula": "期间主动离职人数 / 期间平均在职人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["期间主动离职人数", "期间平均在职人数"],
+    "notes": ""
+  },
+  {
+    "id": "probation_conversion_rate",
+    "name": "转正率",
+    "category": "人员与流动",
+    "formula": "期间转正人数 / 期间应转正人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["期间转正人数", "期间应转正人数"],
+    "notes": ""
+  },
+  {
+    "id": "probation_attrition_rate",
+    "name": "试用期流失率",
+    "category": "人员与流动",
+    "formula": "试用期内离职人数 / 期间入职人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["试用期内离职人数", "期间入职人数"],
+    "notes": ""
+  },
+  {
+    "id": "stability_rate",
+    "name": "人员稳定率",
+    "category": "人员与流动",
+    "formula": "1 − 离职率",
+    "unit": "ratio",
+    "value_type": "complement",
+    "inputs": ["离职率"],
+    "depends_on": ["turnover_rate"],
+    "notes": ""
+  },
+  {
+    "id": "attendance_rate",
+    "name": "出勤率",
+    "category": "考勤与投入",
+    "formula": "实际出勤天数 / 应出勤天数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["实际出勤天数", "应出勤天数"],
+    "notes": "应出勤含工作日扣法定假"
+  },
+  {
+    "id": "absence_rate",
+    "name": "缺勤率",
+    "category": "考勤与投入",
+    "formula": "缺勤天数 / 应出勤天数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["缺勤天数", "应出勤天数"],
+    "notes": ""
+  },
+  {
+    "id": "avg_overtime_hours",
+    "name": "人均加班时长",
+    "category": "考勤与投入",
+    "formula": "期间加班总时长 / 在职人数",
+    "unit": "hours",
+    "value_type": "ratio",
+    "inputs": ["期间加班总时长", "在职人数"],
+    "notes": "月度按平均在职"
+  },
+  {
+    "id": "overtime_rate",
+    "name": "加班率",
+    "category": "考勤与投入",
+    "formula": "加班总时长 / 标准工时总时长",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["加班总时长", "标准工时总时长"],
+    "notes": ""
+  },
+  {
+    "id": "leave_rate",
+    "name": "请假率",
+    "category": "考勤与投入",
+    "formula": "请假天数 / 应出勤天数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["请假天数", "应出勤天数"],
+    "notes": ""
+  },
+  {
+    "id": "headcount_fill_rate",
+    "name": "编制达成率",
+    "category": "编制与组织",
+    "formula": "实有人数 / 编制数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["实有人数", "编制数"],
+    "notes": ">100% 超编, <100% 缺编"
+  },
+  {
+    "id": "vacancy_count",
+    "name": "缺编数",
+    "category": "编制与组织",
+    "formula": "max(编制数 − 实有人数, 0)",
+    "unit": "count",
+    "value_type": "diff_positive",
+    "inputs": ["编制数", "实有人数"],
+    "notes": "实时算,不入库"
+  },
+  {
+    "id": "overstaff_count",
+    "name": "超编数",
+    "category": "编制与组织",
+    "formula": "max(实有人数 − 编制数, 0)",
+    "unit": "count",
+    "value_type": "diff_positive",
+    "inputs": ["实有人数", "编制数"],
+    "notes": "实时算,不入库"
+  },
+  {
+    "id": "span_of_control",
+    "name": "管理幅度",
+    "category": "编制与组织",
+    "formula": "下属人数 / 管理者人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["下属人数", "管理者人数"],
+    "notes": ""
+  },
+  {
+    "id": "performance_achievement_rate",
+    "name": "绩效达成率",
+    "category": "绩效",
+    "formula": "实际绩效得分 / 目标分（或 实际业绩/目标业绩）",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["实际值", "目标值"],
+    "notes": "按场景取分或业绩口径"
+  },
+  {
+    "id": "excellent_rate",
+    "name": "优秀率",
+    "category": "绩效",
+    "formula": "绩效等级为优人数 / 参评人数",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["优秀人数", "参评人数"],
+    "notes": "等级阈值按考核规则"
+  },
+  {
+    "id": "performance_deviation",
+    "name": "绩效分布偏离",
+    "category": "绩效",
+    "formula": "个体得分 − 同部门同岗均值",
+    "unit": "score",
+    "value_type": "subtract",
+    "inputs": ["个体得分", "同部门同岗均值"],
+    "notes": "绩效差=显著低于均值(默认低于1个标准差或低于均值×0.85)"
+  },
+  {
+    "id": "sales_achievement_rate",
+    "name": "业绩达成率",
+    "category": "绩效",
+    "formula": "实际GMV(或订单) / 目标",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["实际GMV", "目标"],
+    "notes": "业绩数据表"
+  },
+  {
+    "id": "labor_cost_total",
+    "name": "人力成本合计",
+    "category": "成本与人效",
+    "formula": "工资+奖金+社保公积金(公司)+福利",
+    "unit": "currency",
+    "value_type": "count",
+    "inputs": ["人力成本合计"],
+    "notes": "部门/事业部聚合；不含个人明细"
+  },
+  {
+    "id": "labor_cost_per_capita",
+    "name": "人均人力成本",
+    "category": "成本与人效",
+    "formula": "部门人力成本合计 / 在职人数",
+    "unit": "currency",
+    "value_type": "ratio",
+    "inputs": ["部门人力成本合计", "在职人数"],
+    "notes": "默认月度；部门级以上聚合"
+  },
+  {
+    "id": "revenue_per_capita",
+    "name": "人效(人均营收)",
+    "category": "成本与人效",
+    "formula": "营收 / 在职人数",
+    "unit": "currency",
+    "value_type": "ratio",
+    "inputs": ["营收", "在职人数"],
+    "notes": ""
+  },
+  {
+    "id": "profit_per_capita",
+    "name": "人均利润",
+    "category": "成本与人效",
+    "formula": "利润 / 在职人数",
+    "unit": "currency",
+    "value_type": "ratio",
+    "inputs": ["利润", "在职人数"],
+    "notes": ""
+  },
+  {
+    "id": "labor_cost_ratio",
+    "name": "薪酬费用率",
+    "category": "成本与人效",
+    "formula": "人力成本 / 营收",
+    "unit": "ratio",
+    "value_type": "ratio",
+    "inputs": ["人力成本", "营收"],
+    "notes": ""
+  },
+  {
+    "id": "cost_mom",
+    "name": "成本环比",
+    "category": "成本与人效",
+    "formula": "(本期 − 上期) / 上期",
+    "unit": "ratio",
+    "value_type": "mom",
+    "inputs": ["本期", "上期"],
+    "aliases": ["环比"],
+    "notes": "趋势用"
+  },
+  {
+    "id": "cost_yoy",
+    "name": "成本同比",
+    "category": "成本与人效",
+    "formula": "(本期 − 去年同期) / 去年同期",
+    "unit": "ratio",
+    "value_type": "yoy",
+    "inputs": ["本期", "去年同期"],
+    "aliases": ["同比"],
+    "notes": ""
+  }
+]

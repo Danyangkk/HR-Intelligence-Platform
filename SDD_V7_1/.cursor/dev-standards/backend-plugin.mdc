@@ -1,0 +1,9 @@
+---
+description: Cursor 后端插件规范适配器。
+---
+
+读取并严格执行：
+
+`harness-core/dev-standards/backend-plugin.md`
+
+核心规则只允许维护在 `harness-core/dev-standards/backend-plugin.md`。

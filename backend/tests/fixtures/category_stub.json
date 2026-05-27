@@ -1,0 +1,42 @@
+{
+  "categories": [
+    {
+      "id": "l1-1",
+      "name": "制度与流程",
+      "children": [
+        {
+          "id": "l2-1-1",
+          "name": "员工手册",
+          "children": [
+            {"id": "l3-1-1-1", "name": "现行制度文档", "source": "document"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "l1-2",
+      "name": "人事数据",
+      "children": [
+        {
+          "id": "l2-2-1",
+          "name": "花名册",
+          "children": [
+            {"id": "l3-2-1-4", "name": "员工花名册", "source": "structured"}
+          ]
+        },
+        {
+          "id": "l2-2-2",
+          "name": "考勤",
+          "children": [
+            {"id": "l3-2-2-1", "name": "请假记录", "source": "structured"}
+          ]
+        }
+      ]
+    }
+  ],
+  "templates": {
+    "l3-2-1-4": {"primary_key": "工号", "display_fields": ["姓名", "部门", "序列"]},
+    "l3-2-2-1": {"primary_key": "工号", "display_fields": ["姓名", "请假天数"]},
+    "l3-1-1-1": {"doc_type": "policy", "chunk_size": 512}
+  }
+}
