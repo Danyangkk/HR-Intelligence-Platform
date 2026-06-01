@@ -307,7 +307,22 @@ async def agent_ask(
     body: AgentAskRequest,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_optional_user),
+    x_payroll_confirm: str | None = None,
 ):
+    import sys
+    from fastapi import Header
+    
+    # 🔍 日志0: /ask 接口入口，打印请求头和用户状态
+    print(f"\n{'#'*80}", file=sys.stderr)
+    print(f"[POST /ask 接口] 收到请求", file=sys.stderr)
+    print(f"[POST /ask 接口] question={body.question[:50]}...", file=sys.stderr)
+    print(f"[POST /ask 接口] user.username={user.username}", file=sys.stderr)
+    print(f"[POST /ask 接口] user.role={user.role}", file=sys.stderr)
+    print(f"[POST /ask 接口] user.payroll_access={user.payroll_access}", file=sys.stderr)
+    print(f"[POST /ask 接口] user.payroll_confirmed={user.payroll_confirmed}", file=sys.stderr)
+    print(f"[POST /ask 接口] 注意：x-payroll-confirm 在 get_optional_user 依赖中已读取", file=sys.stderr)
+    print(f"{'#'*80}\n", file=sys.stderr)
+    
     if not body.question.strip():
         return fail(400, "question 不能为空")
 
@@ -325,6 +340,8 @@ async def agent_ask(
                 entities=body.entities,
                 session_id=session_id,
                 actor=actor,
+                payroll_access=user.payroll_access,
+                payroll_confirmed=user.payroll_confirmed,
             ),
             media_type="text/event-stream",
             headers={
@@ -342,6 +359,8 @@ async def agent_ask(
         history=body.history,
         entities=body.entities,
         session_id=session_id,
+        payroll_access=user.payroll_access,
+        payroll_confirmed=user.payroll_confirmed,
     )
     await _record_agent_session(db, actor=actor, role=role, question=body.question, result=result)
     return ok(result)

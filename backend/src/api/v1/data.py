@@ -15,7 +15,7 @@ from src.db.session import get_db
 from src.models import Category, DataRecord, Template
 from src.api.deps import CurrentUser, get_optional_user, require_write, resolve_role
 from src.services.audit import write_audit
-from src.services.rbac import can_read_l3, mask_items
+from src.services.rbac import can_read_l3, is_payroll_l3, mask_items
 from src.schemas.importing import (
     ImportCommitRequest,
     ImportPreviewRequest,
@@ -82,8 +82,14 @@ async def list_data(
     user: CurrentUser = Depends(get_optional_user),
 ) -> dict[str, Any]:
     role = resolve_role(user)
-    if not can_read_l3(role, l3_id):
-        raise HTTPException(status_code=403, detail="无权访问该数据表")
+    if not can_read_l3(
+        role,
+        l3_id,
+        payroll_access=user.payroll_access,
+        payroll_confirmed=user.payroll_confirmed,
+    ):
+        detail = "薪资数据需二次确认后访问" if is_payroll_l3(l3_id) else "无权访问该数据表"
+        raise HTTPException(status_code=403, detail=detail)
     cat, tpl = await _load_data_table(db, l3_id)
     src = cat.source or source_of(l3_id)
     filters = _parse_filters(request)
@@ -96,7 +102,13 @@ async def list_data(
         search=search.strip(),
         filters=filters,
     )
-    items = mask_items(role, l3_id, [record_to_item(record, tpl) for record in records])
+    items = mask_items(
+        role,
+        l3_id,
+        [record_to_item(record, tpl) for record in records],
+        payroll_access=user.payroll_access,
+        payroll_confirmed=user.payroll_confirmed,
+    )
     return ok(
         {
             "l3_id": l3_id,

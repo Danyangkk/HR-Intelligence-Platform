@@ -214,6 +214,30 @@ def plan_with_llm(
         return _unmatched_result(reasoning=f"置信度过低({confidence})", source="llm")
 
     intent = str(payload.get("intent") or "").strip()
+
+    # 透传 LLM 的薪资语义判定字段（ROUTER §4 出口2）
+    payroll_sensitive = bool(payload.get("payroll_sensitive"))
+    payroll_scope_raw = payload.get("payroll_scope")
+    payroll_scope = (
+        str(payroll_scope_raw).strip()
+        if payroll_scope_raw and str(payroll_scope_raw).strip() in {"individual", "bu", "company"}
+        else None
+    )
+
+    # intent=clarify：薪资明细范围过大需澄清，由 Planner 直接出 clarify 出口（无 plan）
+    if intent == "clarify":
+        clarify_raw = payload.get("clarify") or {}
+        if not isinstance(clarify_raw, dict):
+            return None
+        return {
+            "intent": "clarify",
+            "reasoning": str(payload.get("reasoning") or "").strip() or "需要补充信息",
+            "plan": [],
+            "clarify": clarify_raw,
+            "payroll_sensitive": payroll_sensitive,
+            "payroll_scope": payroll_scope or "company",
+        }
+
     plan_raw = payload.get("plan") or payload.get("subtasks") or []
     if not isinstance(plan_raw, list):
         return None
@@ -233,7 +257,13 @@ def plan_with_llm(
         return None
 
     reasoning = str(payload.get("reasoning") or "").strip()
-    out: dict[str, Any] = {"intent": intent, "reasoning": reasoning, "plan": plan}
+    out: dict[str, Any] = {
+        "intent": intent,
+        "reasoning": reasoning,
+        "plan": plan,
+        "payroll_sensitive": payroll_sensitive,
+        "payroll_scope": payroll_scope,
+    }
     if confidence is not None:
         out["confidence"] = confidence
     return out

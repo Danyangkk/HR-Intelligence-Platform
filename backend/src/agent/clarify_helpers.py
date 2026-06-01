@@ -86,6 +86,47 @@ def lookup_target_l3s(scope: str | None) -> list[str]:
     return ["l3-2-2-1"]
 
 
+# 薪资明细各类对应的 L3 主表（个人记录维度，不含汇总/审批表）
+# 详见 backend/src/seed/generated/categories.json L2-4-x 节点。
+_PAYROLL_L3_GROUPS: dict[str, list[str]] = {
+    "wage": ["l3-4-1-4"],          # 工资发放明细表-网银报盘
+    "bonus": ["l3-4-2-2"],         # 月度奖金发放明细表
+    "social": ["l3-4-3-1"],        # 社保公积金账单
+    "equity": ["l3-4-5-1", "l3-4-5-2"],  # 股权授予/归属记录
+}
+# 默认宽泛"薪资"问法的查询集（工资 + 奖金 + 社保三张明细主表）
+_PAYROLL_L3_DEFAULT: list[str] = ["l3-4-1-4", "l3-4-2-2", "l3-4-3-1"]
+
+_PAYROLL_FIELD_HINTS: dict[str, tuple[str, ...]] = {
+    "wage":   ("工资", "薪水", "月薪", "工资条", "工资单", "底薪", "应发", "实发"),
+    "bonus":  ("奖金", "年终奖", "绩效奖", "项目奖", "提成", "津贴", "补贴"),
+    "social": ("社保", "公积金", "五险一金", "养老金", "医保", "失业金"),
+    "equity": ("股权", "期权", "限制性股票"),
+}
+
+
+def pick_payroll_l3s(question: str) -> list[str]:
+    """根据问题里提到的具体薪酬字段，选要查询的 L3 明细表集合。
+
+    设计：
+    - 命中具体字段（工资/奖金/社保/股权）→ 收窄到对应组（可叠加，如"工资和奖金"→两张表）。
+    - 未命中具体字段或仅含宽泛词（薪资/薪酬/收入/到手）→ 默认查工资+奖金+社保三张明细主表。
+
+    注意：这是"技术性选表"，不是"安全判定"。安全判定由 Planner 的 payroll_sensitive 决定。
+    选错表无安全风险（最多多查/少查一张），Retriever 仍按工号/事业部筛后由 Composer 归纳。
+    """
+    q = question.strip()
+    matched: list[str] = []
+    seen: set[str] = set()
+    for group, hints in _PAYROLL_FIELD_HINTS.items():
+        if any(h in q for h in hints):
+            for l3 in _PAYROLL_L3_GROUPS[group]:
+                if l3 not in seen:
+                    seen.add(l3)
+                    matched.append(l3)
+    return matched or list(_PAYROLL_L3_DEFAULT)
+
+
 def clarify_options_for_history(clarify: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not clarify:
         return []

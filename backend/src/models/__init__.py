@@ -2,7 +2,7 @@ from datetime import date, datetime
 import uuid
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, Date, Float, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -179,6 +179,112 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="viewer")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="staff")
     display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
+    payroll_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PayrollGrantLog(Base):
+    __tablename__ = "payroll_grant_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    target_username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    granted_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PayrollAccessLog(Base):
+    __tablename__ = "payroll_access_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    entry: Mapped[str] = mapped_column(String(64), nullable=False)
+    fields: Mapped[str] = mapped_column(String(256), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class ImprovementTicket(Base):
+    __tablename__ = "improvement_ticket"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    content_biz: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_changes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    change_target: Mapped[str | None] = mapped_column(Text, nullable=True)
+    test_requirement: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_run_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gate_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignee: Mapped[str] = mapped_column(String(64), nullable=False, default="tech_super_admin")
+    # 工单来源关联：从复盘报告采纳建议生成 / 手动创建
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    source_report_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_finding_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_suggestion_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class EvalRun(Base):
+    __tablename__ = "eval_run"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    triggered_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_cases: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer1_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer1_pass: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer2_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer2_pass: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer3_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer3_scored: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    layer3_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    layer3_correctness_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    layer3_completeness_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    layer3_citation_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    layer3_compliance_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    intent_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    weakness_summary: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    case_results: Mapped[list["EvalCaseResult"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class EvalCaseResult(Base):
+    __tablename__ = "eval_case_result"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("eval_run.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    case_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    layer: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    expected: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    actual: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    judge_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    violations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    run: Mapped[EvalRun] = relationship(back_populates="case_results")

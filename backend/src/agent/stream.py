@@ -306,12 +306,25 @@ async def run_agent_stream(
     db: AsyncSession,
     *,
     question: str,
-    role: str = "viewer",
+    role: str = "staff",
     history: list[dict[str, Any]] | None = None,
     session_id: str | None = None,
     actor: str | None = None,
     entities: dict[str, Any] | None = None,
+    payroll_access: bool = False,
+    payroll_confirmed: bool = False,
 ) -> AsyncIterator[str]:
+    import sys
+    
+    # 🔍 日志1: Agent Stream 开始，打印传入的薪资权限状态
+    print(f"\n{'='*80}", file=sys.stderr)
+    print(f"[Agent Stream 启动] session_id={session_id}", file=sys.stderr)
+    print(f"[Agent Stream 启动] question={question[:50]}...", file=sys.stderr)
+    print(f"[Agent Stream 启动] role={role}", file=sys.stderr)
+    print(f"[Agent Stream 启动] payroll_access={payroll_access}", file=sys.stderr)
+    print(f"[Agent Stream 启动] payroll_confirmed={payroll_confirmed}", file=sys.stderr)
+    print(f"{'='*80}\n", file=sys.stderr)
+    
     app = build_agent_graph()
     q = question.strip()
     session_id = session_id or str(uuid.uuid4())
@@ -328,6 +341,8 @@ async def run_agent_stream(
     initial: AgentState = {
         "question": q,
         "role": role,
+        "payroll_access": payroll_access,
+        "payroll_confirmed": payroll_confirmed,
         "history": history or [],
         "entities": dict(entities or {}),
         "plan": [],
@@ -349,6 +364,25 @@ async def run_agent_stream(
             state = _merge_state(state, update)
 
             if node_name == "planner":
+                # Planner 主动 clarify 出口（如薪资明细范围缩小到事业部）
+                if update.get("clarify") and not update.get("rejected"):
+                    clarify = update["clarify"]
+                    print(f"[Stream] Planner 主动 clarify: kind={clarify.get('kind')}", file=__import__('sys').stderr)
+                    yield format_sse(
+                        "clarify",
+                        {
+                            "question": clarify.get("question") or "需要补充信息。",
+                            "options": clarify.get("options") or [],
+                            "kind": clarify.get("kind") or "general",
+                            "intent": "clarify",
+                            "entities": state.get("entities") or {},
+                            "session_id": session_id,
+                        },
+                        run_id=run_id,
+                    )
+                    yield format_sse("done", {}, run_id=run_id)
+                    return
+
                 direct = _planner_direct_reply(update)
                 if direct:
                     kind, text = direct
@@ -368,7 +402,26 @@ async def run_agent_stream(
                     yield format_sse("done", {}, run_id=run_id)
                     return
                 if update.get("rejected"):
-                    if update.get("unmatched"):
+                    # 🔍 日志2: Planner Reject 分支，打印为什么 reject
+                    import sys
+                    reject_reason = update.get("reject_reason") or "无法回答。"
+                    is_unmatched = update.get("unmatched")
+                    
+                    print(f"\n{'='*80}", file=sys.stderr)
+                    print(f"[Planner Reject] session_id={session_id}", file=sys.stderr)
+                    print(f"[Planner Reject] reject_reason={reject_reason}", file=sys.stderr)
+                    print(f"[Planner Reject] is_unmatched={is_unmatched}", file=sys.stderr)
+                    print(f"[Planner Reject] state.role={state.get('role')}", file=sys.stderr)
+                    print(f"[Planner Reject] state.payroll_access={state.get('payroll_access')}", file=sys.stderr)
+                    print(f"[Planner Reject] state.payroll_confirmed={state.get('payroll_confirmed')}", file=sys.stderr)
+                    
+                    if reject_reason == "需要二次确认":
+                        print(f"[Planner Reject] 🚨 走了'需要二次确认'分支 - 将发送 reject 事件给前端", file=sys.stderr)
+                    else:
+                        print(f"[Planner Reject] 走了其他 reject 分支: {reject_reason}", file=sys.stderr)
+                    print(f"{'='*80}\n", file=sys.stderr)
+                    
+                    if is_unmatched:
                         yield format_sse(
                             "answer",
                             {
@@ -383,9 +436,13 @@ async def run_agent_stream(
                             run_id=run_id,
                         )
                     else:
+                        # 显式透传可挽回标识 need_payroll_confirm，前端据此判断弹窗 vs 拒答话术
+                        reject_payload: dict[str, Any] = {"reason": reject_reason}
+                        if update.get("need_payroll_confirm"):
+                            reject_payload["need_payroll_confirm"] = True
                         yield format_sse(
                             "reject",
-                            {"reason": update.get("reject_reason") or "无法回答。"},
+                            reject_payload,
                             run_id=run_id,
                         )
                     yield format_sse("done", {}, run_id=run_id)

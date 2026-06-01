@@ -116,6 +116,20 @@ def extract_decision(
         if result.get("clarify"):
             decision["clarify"] = True
             decision["kind"] = (result.get("clarify") or {}).get("kind") or "unknown"
+        else:
+            decision["resolved"] = True
+            # 记录哪些维度被解析了（不记录具体值）
+            entities_resolved = []
+            if result.get("employee") or state.get("employee"):
+                entities_resolved.append("employee")
+            if result.get("org") or state.get("org"):
+                entities_resolved.append("org")
+            if result.get("time_range") or state.get("time_range"):
+                entities_resolved.append("time_range")
+            if result.get("department") or state.get("department"):
+                entities_resolved.append("department")
+            if entities_resolved:
+                decision["entities_resolved"] = entities_resolved
     elif node_name in {"retrieve", "retrieve_worker", "retrieve_collect"}:
         merged_evidence = list(state.get("evidence") or []) + list(result.get("evidence") or [])
         rows, l3_ids = _count_structured_rows(merged_evidence)
@@ -135,27 +149,71 @@ def extract_decision(
             hits = len(result.get("citations") or [])
         decision["path"] = "rag"
         decision["chunks_hit"] = hits
+        # 补充：top_score（最高相似度分数）
+        top_score = 0.0
+        for block in merged_evidence:
+            if block.get("kind") == "documents":
+                for hit in block.get("hits") or []:
+                    if isinstance(hit, dict) and "score" in hit:
+                        try:
+                            score = float(hit.get("score") or 0)
+                            top_score = max(top_score, score)
+                        except (ValueError, TypeError):
+                            pass
+        if top_score > 0:
+            decision["top_score"] = round(top_score, 3)
         subtask = state.get("current_subtask") or {}
         targets = subtask.get("target_l3") or []
         if targets:
             decision["l3_id"] = targets[0]
     elif node_name == "analyst":
         decision["charts"] = len(result.get("charts") or state.get("charts") or [])
+        
+        # 补充：skill_used
+        active_skills = result.get("active_skills") or state.get("active_skills") or []
+        if active_skills and isinstance(active_skills, list) and len(active_skills) > 0:
+            first_skill = active_skills[0]
+            if isinstance(first_skill, dict) and first_skill.get("id"):
+                decision["skill_used"] = str(first_skill["id"])
+        
+        # 补充：factors_count, has_baseline
         analysis = result.get("analysis") or state.get("analysis") or {}
         if "sufficient" in analysis:
             decision["sufficient"] = bool(analysis.get("sufficient"))
+        
+        factors = analysis.get("factors") or []
+        if factors and isinstance(factors, list):
+            decision["factors_count"] = len(factors)
+        
+        if analysis.get("baseline"):
+            decision["has_baseline"] = True
     elif node_name == "critic":
         if result.get("needs_replan"):
             decision["decision"] = "replan"
-            decision["gaps_count"] = 1
+            # 补充：准确统计gap数量
+            gaps = result.get("gaps") or []
+            decision["gaps_count"] = len(gaps) if isinstance(gaps, list) and gaps else 1
         elif result.get("limitation"):
             decision["decision"] = "pass_with_limit"
+            decision["gaps_count"] = 0
         else:
             decision["decision"] = "pass"
+            decision["gaps_count"] = 0
     elif node_name == "composer":
         citations = result.get("citations") or state.get("citations") or []
         decision["citations"] = len(citations)
         decision["charts"] = len(result.get("charts") or state.get("charts") or [])
+        
+        # 补充：salary_fields_skipped（记录有多少薪资字段被脱敏/跳过）
+        salary_skipped = 0
+        for cite in citations:
+            if isinstance(cite, dict):
+                masked = cite.get("masked_fields") or []
+                if masked and isinstance(masked, list):
+                    salary_skipped += len(masked)
+        if salary_skipped > 0:
+            decision["salary_fields_skipped"] = salary_skipped
+        
         if result.get("final"):
             decision["composed"] = True
     elif node_name == "supervisor":

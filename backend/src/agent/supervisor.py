@@ -51,12 +51,15 @@ def _personal_employee_scope(state: AgentState) -> bool:
 
 
 def _retrieve_worker_payload(state: AgentState, l3_id: str) -> dict[str, Any]:
-    """LangGraph Send replaces worker input — must carry resolver entities for filters."""
+    """LangGraph Send replaces worker input — must carry resolver entities for filters
+    AND payroll权限标志（业务超管薪资表查询需要 payroll_confirmed=True 才能解密）."""
     payload: dict[str, Any] = {
         "fetch_l3_id": l3_id,
         "question": state.get("question"),
         "intent": state.get("intent"),
         "role": state.get("role"),
+        "payroll_access": state.get("payroll_access"),
+        "payroll_confirmed": state.get("payroll_confirmed"),
         "broaden_search": state.get("broaden_search"),
         "plan": state.get("plan"),
         "plan_index": state.get("plan_index"),
@@ -225,12 +228,44 @@ async def execute_retrieve_subtask(db: AsyncSession, state: AgentState, subtask:
         target_l3 = _default_structured_targets(intent)
     ctx.run_step("structured-retrieval", 1, f"读 target_l3：{','.join(target_l3[:3])}")
 
+    # 空表/无模板/取数异常时优雅降级返回 0 行 evidence，避免抛 IndexError 触发 wrapper 重试。
+    # 复盘 trace 仍能记录 rows_returned=0，比 3 次 IndexError 更准确反映"取数 0 条"。
+    if not target_l3:
+        empty_block = {"kind": "structured", "l3_id": "", "rows": []}
+        ctx.run_step("structured-retrieval", 2, "未配置 target_l3 → 0 条")
+        return {
+            **ctx.to_state_patch(),
+            "evidence": [empty_block],
+            "citations": [],
+            "trace": [ctx.trace_entry(subtask_id=subtask_id, summary="未配置 target_l3")],
+        }
+
     l3_id = target_l3[0]
-    await _prefetch_retriever_tools(ctx, db, l3_id)
-    ctx.record_tool("query_structured")
-    fetched = await _fetch_l3(db, state, l3_id, role=role)
+    try:
+        await _prefetch_retriever_tools(ctx, db, l3_id)
+        ctx.record_tool("query_structured")
+        fetched = await _fetch_l3(db, state, l3_id, role=role)
+    except (IndexError, KeyError, AttributeError) as exc:
+        import logging
+        logging.getLogger("agent.harness").warning(
+            "structured retrieve degraded for l3=%s: %s(%s)", l3_id, type(exc).__name__, exc
+        )
+        empty_block = {"kind": "structured", "l3_id": l3_id, "rows": []}
+        ctx.run_step("structured-retrieval", 2, f"{l3_id} 取数异常({type(exc).__name__}) → 降级 0 条")
+        return {
+            **ctx.to_state_patch(),
+            "evidence": [empty_block],
+            "citations": [],
+            "trace": [ctx.trace_entry(subtask_id=subtask_id, summary=f"{l3_id} 取数异常 → 降级 0 条")],
+        }
+
     ctx.run_step("structured-retrieval", 2, fetched["summary"])
-    guarded = _guard_evidence([fetched["block"]], role=role)
+    guarded = _guard_evidence(
+        [fetched["block"]],
+        role=role,
+        payroll_access=bool(state.get("payroll_access")),
+        payroll_confirmed=bool(state.get("payroll_confirmed")),
+    )
     ctx.run_step("pii-permission", 1, f"role={role} 脱敏后 {len(guarded[0].get('rows') or [])} 行")
     return {
         **ctx.to_state_patch(),
@@ -275,12 +310,35 @@ async def run_retrieve_worker(state: AgentState) -> dict[str, Any]:
     ctx = begin_agent_run("Retriever", state, subtask_type="retrieve")
     ctx.run_step("structured-retrieval", 1, f"Send worker 取数 {l3_id}")
 
-    async with AsyncSessionLocal() as db:
-        await _prefetch_retriever_tools(ctx, db, l3_id)
-        ctx.record_tool("query_structured")
-        fetched = await _fetch_l3(db, state, l3_id, role=role, skip_prefetch=True)
+    # 与 execute_retrieve_subtask 同样的容错：单 worker 取数异常时优雅降级，
+    # 不让一张表的 IndexError 把整个 fan-out 拖崩。其他并行 worker 的结果仍能合并。
+    try:
+        async with AsyncSessionLocal() as db:
+            await _prefetch_retriever_tools(ctx, db, l3_id)
+            ctx.record_tool("query_structured")
+            fetched = await _fetch_l3(db, state, l3_id, role=role, skip_prefetch=True)
+    except (IndexError, KeyError, AttributeError) as exc:
+        import logging
+        logging.getLogger("agent.harness").warning(
+            "Send worker structured retrieve degraded for l3=%s: %s(%s)",
+            l3_id, type(exc).__name__, exc,
+        )
+        empty_block = {"kind": "structured", "l3_id": l3_id, "rows": []}
+        ctx.run_step("structured-retrieval", 2, f"{l3_id} 取数异常({type(exc).__name__}) → 降级 0 条")
+        return {
+            **ctx.to_state_patch(include_active_skills=False),
+            "evidence": [empty_block],
+            "citations": [],
+            "trace": [ctx.trace_entry(subtask_id=f"{subtask_id}-{l3_id}", summary=f"{l3_id} 取数异常 → 降级 0 条")],
+        }
+
     ctx.run_step("structured-retrieval", 2, fetched["summary"])
-    guarded = _guard_evidence([fetched["block"]], role=role)
+    guarded = _guard_evidence(
+        [fetched["block"]],
+        role=role,
+        payroll_access=bool(state.get("payroll_access")),
+        payroll_confirmed=bool(state.get("payroll_confirmed")),
+    )
     ctx.run_step("pii-permission", 1, f"role={role} 脱敏完成")
     return {
         **ctx.to_state_patch(include_active_skills=False),
@@ -353,7 +411,7 @@ async def _fetch_l3(
         page_size=50 if l3_id in {COST_L3, HEADCOUNT_L3, "l3-2-5-1", "l3-2-3-1", "l3-5-1-1", "l3-2-1-4", "l3-6-1-1"} else 20,
         role=role,
     )
-    items = result["items"]
+    items = result.get("items") or []
     if not items and filters:
         tpl = await db.get(Template, l3_id)
         columns = list(tpl.columns) if tpl else []
@@ -372,7 +430,7 @@ async def _fetch_l3(
                 page_size=50 if l3_id in {COST_L3, HEADCOUNT_L3, "l3-2-5-1", "l3-2-3-1", "l3-5-1-1", "l3-2-1-4", "l3-6-1-1"} else 20,
                 role=role,
             )
-            items = retry["items"]
+            items = retry.get("items") or []
     items = _filter_rows_for_employee(state, l3_id, items)
     block = {"kind": "structured", "l3_id": l3_id, "rows": items}
     citations = [{"kind": "data", "l3_id": l3_id, "locator": row.get("_locator") or []} for row in items[:10]]

@@ -99,32 +99,46 @@ async def record_node_trace(
     if not harness:
         return
 
-    harness.node_seq += 1
-    harness.node_count += 1
     trace_node = trace_node_name(node_name)
     agent = trace_agent_name(node_name, result or {})
     decision = extract_decision(node_name, result or {}, state)  # type: ignore[arg-type]
     skills = extract_skills(result or {}, state)  # type: ignore[arg-type]
     tools = extract_tools(result or {})
 
-    row = AgentNodeTrace(
-        run_id=harness.run_id,
-        seq=harness.node_seq,
-        node=trace_node,
-        agent=agent,
-        skills_loaded=skills,
-        tools_called=tools,
-        status=status,
-        attempt=attempt,
-        duration_ms=duration_ms,
-        decision=decision,
-        error_type=error_type,
-    )
-    await persist_node_trace_row(harness.db, row)
+    # 并发保护：多个 retrieve_worker 并行节点会共享同一个 db session，
+    # 必须串行化 seq 自增和 db.flush() 调用，否则会触发：
+    # sqlalchemy.exc.InvalidRequestError: Session is already flushing
+    async with harness.db_lock:
+        harness.node_seq += 1
+        harness.node_count += 1
+        seq = harness.node_seq
+
+        row = AgentNodeTrace(
+            run_id=harness.run_id,
+            seq=seq,
+            node=trace_node,
+            agent=agent,
+            skills_loaded=skills,
+            tools_called=tools,
+            status=status,
+            attempt=attempt,
+            duration_ms=duration_ms,
+            decision=decision,
+            error_type=error_type,
+        )
+        try:
+            await persist_node_trace_row(harness.db, row)
+        except Exception as exc:
+            # trace 写入失败不能阻断主流程；先回滚 session，避免污染后续查询
+            logger.exception("persist_node_trace_row failed: %s", exc)
+            try:
+                await harness.db.rollback()
+            except Exception:
+                logger.exception("db.rollback() after trace failure also failed")
 
     log_node(
         run_id=str(harness.run_id),
-        seq=harness.node_seq,
+        seq=seq,
         node=trace_node,
         agent=agent,
         status=status,
@@ -149,7 +163,7 @@ async def record_node_trace(
 
     harness.traces.append(
         {
-            "seq": harness.node_seq,
+            "seq": seq,
             "node": trace_node,
             "status": status,
             "attempt": attempt,

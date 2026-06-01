@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass, field
@@ -32,6 +33,9 @@ class HarnessContext:
     badcase_signals: list[str] = field(default_factory=list)
     run_persisted: bool = False
     finalized: bool = False
+    # 并发保护：多个 retrieve_worker 并行时串行化对 db session 的访问，防止
+    # SQLAlchemy AsyncSession 同时 flush 触发 "Session is already flushing" 错误
+    db_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 def get_harness(config: dict[str, Any] | None) -> HarnessContext | None:
@@ -112,14 +116,27 @@ async def finalize_harness_run(
     if not harness or harness.finalized or not harness.run_persisted:
         return
     outcome, reject_reason = infer_outcome(state, flow_timeout=flow_timeout)
-    await finalize_agent_run_row(
-        harness.db,
-        harness,
-        state=state,
-        outcome=outcome,
-        reject_reason=reject_reason,
-        duration_ms=duration_ms,
-    )
+    # 与 trace 写入共享同一把锁，并且兜底捕获异常 —— 即使 finalize 失败也不能
+    # 阻断 SSE 流（已经把答案发给前端了，failsafe 必须保证 done 事件发出去）
+    async with harness.db_lock:
+        try:
+            await finalize_agent_run_row(
+                harness.db,
+                harness,
+                state=state,
+                outcome=outcome,
+                reject_reason=reject_reason,
+                duration_ms=duration_ms,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger("agent.harness").exception(
+                "finalize_agent_run_row failed: %s", exc
+            )
+            try:
+                await harness.db.rollback()
+            except Exception:
+                pass
     log_run_end(
         run_id=str(harness.run_id),
         outcome=outcome,

@@ -71,12 +71,12 @@ async def test_submit_feedback_and_badcase_review():
         )
         assert len(list(rows.all())) == 2
 
-        listed = await list_badcases(db, role="hr_admin", page=1, page_size=10, status="pending")
+        listed = await list_badcases(db, role="biz_super_admin", page=1, page_size=10, status="pending")
         assert listed["total"] >= 1
         assert any(item["run_id"] == str(badcase_id) for item in listed["items"])
 
         updated = await update_badcase_review(
-            db, role="hr_admin", run_id=str(badcase_id), review_status="fixed"
+            db, role="biz_super_admin", run_id=str(badcase_id), review_status="fixed"
         )
         assert updated is not None
         assert updated["review_status"] == "fixed"

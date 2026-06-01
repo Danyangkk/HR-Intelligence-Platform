@@ -18,8 +18,19 @@ _LOOKUP_KEYWORDS = (
     "请了", "请假", "几天", "多少天", "合同", "社保", "转正", "绩效", "工资", "花名册",
     "任职", "办了吗", "进度", "状态", "表现", "考核", "评分", "等级", "排名",
 )
+# 已废弃：旧版关键词主判定列表，被 LLM 语义判定 (PLANNER_SYSTEM §4) 取代。
+# 保留仅为兼容旧调用，新代码不应依赖。详见 payroll_safety_net()。
 _SALARY_BLOCK = ("薪资明细", "工资明细", "每个人的薪资", "个人薪资", "谁的工资", "工资条", "薪水多少", "工资多少")
 _SALARY_ALLOW = ("部门", "事业部", "汇总", "成本", "预算", "平均", "人均")
+
+# 最小薪酬词集合 —— 仅作为"LLM 漏标 payroll_sensitive 时的安全网"。
+# 用法：方向只能"更严"——命中 → 当作可能涉密，走二次确认/clarify；绝不能用它放行。
+# 不参与"判成什么意图、什么范围"（那是 LLM 的事）。
+_PAYROLL_SAFETY_NET_WORDS = (
+    "工资", "薪资", "薪酬", "薪水", "奖金", "津贴", "补贴", "提成",
+    "年终奖", "工资条", "薪资条", "工资单", "到手", "实发", "应发",
+    "工资多少", "挣多少", "收入多少",
+)
 _NAME_STOP = r"(?=最近|表现|绩效|请假|怎么样|如何|为什么|这|本|个|月|的|在|\d|$|[，,？?])"
 _ORG_HEADCOUNT_MARKERS = ("多少人", "多少个人", "几个人", "规模多大", "规模", "人数", "有几个")
 NAME_RE = re.compile(rf"[张李王赵周吴郑陈刘韩孙杨][\u4e00-\u9fa5]{{0,1}}{_NAME_STOP}")
@@ -294,11 +305,59 @@ def classify_intent(question: str, *, hint: str | None = None) -> Intent | None:
     return None
 
 
+def payroll_safety_net(question: str) -> bool:
+    """
+    薪资关键词安全网（仅在 LLM 漏标 payroll_sensitive 时启用）。
+
+    设计原则（ROUTER §4 出口2 + 用户指示）：
+    - LLM 语义判定是唯一分类主路径（判 payroll_sensitive + payroll_scope + intent）；
+      关键词不参与判"是什么意图、什么范围"。
+    - 关键词仅作"安全网兜底"，方向只能"更严"——
+      即"LLM 没标但关键词命中 → 当作可能涉密，走确认/clarify/拦截"，
+      绝不能反过来用关键词放行。
+
+    返回 True = LLM 漏标但关键词命中薪酬词 → 应当按可能涉密处理。
+    """
+    q = question.strip()
+    return any(word in q for word in _PAYROLL_SAFETY_NET_WORDS)
+
+
 def check_salary_rejection(question: str) -> str | None:
+    """
+    已废弃（DEPRECATED）：旧版基于 _SALARY_BLOCK/_SALARY_ALLOW 关键词的主判定。
+    新代码改用 LLM 输出的 `payroll_sensitive` + `payroll_scope` 字段；
+    本函数仅为兼容旧测试/旧引用保留，新代码不应再调用。
+    """
     q = question.strip()
     if any(k in q for k in _SALARY_BLOCK) and not any(k in q for k in _SALARY_ALLOW):
         return "该问题涉及个人薪资明细，已被拦截，无法回答。"
     return None
+
+
+def route_payroll_by_scope(question: str) -> dict[str, Any]:
+    """
+    薪资明细放行后的范围分流（仅在业务超管已确认 TTL 时调用）。
+    按 ROUTER §4 出口2 设计 —— 用"主体范围"语义判定，不依赖关键词枚举：
+      - 命中人名（NAME_RE）→ individual → 走 lookup
+      - 命中事业部三枚举（含别名）→ bu → 走 list
+      - 都没命中 → company → 走 clarify（让用户选事业部）
+
+    返回：
+      {"kind": "individual", "intent": "lookup"}
+      {"kind": "bu", "intent": "list", "事业部": "杭抖部门"}
+      {"kind": "company", "intent": "clarify"}
+    """
+    q = question.strip()
+
+    if NAME_RE.search(q):
+        return {"kind": "individual", "intent": "lookup"}
+
+    org = extract_org(q)
+    bu = org.get("事业部")
+    if bu:
+        return {"kind": "bu", "intent": "list", "事业部": bu}
+
+    return {"kind": "company", "intent": "clarify"}
 
 
 def extract_org(question: str) -> dict[str, Any]:

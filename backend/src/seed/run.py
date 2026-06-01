@@ -13,6 +13,7 @@ from src.db.session import AsyncSessionLocal, engine
 from src.models import Category, DataRecord, FeishuSync, Template, User
 from src.seed.mock_records import patch_mock_records, seed_mock_records
 from src.seed.registry import load_categories, load_templates
+from src.services.improvement_tickets import seed_demo_tickets, seed_demo_users
 from src.services.source import source_of
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -162,6 +163,9 @@ async def seed_all(force: bool = False) -> None:
                     display_name=display_name,
                 )
             )
+
+        await seed_demo_users(session, pwd_context.hash)
+        await seed_demo_tickets(session)
 
         await session.commit()
         mock_count = await seed_mock_records(session, force=force)

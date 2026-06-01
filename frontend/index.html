@@ -40,11 +40,23 @@ svg{display:block}
 .header-search input:focus{background:var(--bg1);border-color:var(--pri);box-shadow:0 0 0 2px rgba(22,93,255,.1)}
 .header-search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
 .app-header .spacer{flex:1}
-.header-right{display:flex;align-items:center;gap:8px}
-.user-block{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:pointer}
+.header-right{display:flex;align-items:center;gap:8px;position:relative}
+.user-block{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:6px;cursor:pointer;transition:all .15s;position:relative}
 .user-block:hover{background:var(--bg2)}
-.user-avatar{width:28px;height:28px;border-radius:50%;background:var(--pri-lt);color:var(--pri);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500}
-.user-name{font-size:13px}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:var(--pri-lt);color:var(--pri);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500}
+.user-name{font-size:14px;font-weight:500}
+.user-role{font-size:12px;color:var(--t3);margin-left:4px}
+.user-dropdown-icon{width:16px;height:16px;margin-left:4px;color:var(--t3);transition:transform .2s}
+.user-block:hover .user-dropdown-icon{transform:rotate(180deg)}
+.user-dropdown{position:absolute;top:calc(100% + 4px);right:0;min-width:180px;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:1000;display:none;overflow:hidden}
+.user-dropdown.show{display:block}
+.user-dropdown-item{padding:10px 16px;font-size:14px;color:var(--t1);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--bd)}
+.user-dropdown-item:last-child{border-bottom:none}
+.user-dropdown-item:hover{background:var(--bg2);color:var(--pri)}
+.user-dropdown-item.danger{color:var(--dan)}
+.user-dropdown-item.danger:hover{background:rgba(239,68,68,.08);color:var(--dan)}
+.user-dropdown-divider{height:1px;background:var(--bd);margin:4px 0}
+.user-dropdown-icon-left{width:16px;height:16px;flex-shrink:0}
 
 /* SIDEBAR */
 .app-sidebar{width:var(--sw);background:var(--bg1);border-right:1px solid var(--bd);overflow-y:auto;flex-shrink:0;padding:16px 0}
@@ -234,6 +246,11 @@ svg{display:block}
 .modal-close{width:24px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t3)}
 .modal-close:hover{background:var(--bg2);color:var(--t1)}
 .modal-body{padding:16px 20px 4px;flex:1;overflow-y:auto}
+.modal-body label{font-size:13px;color:var(--t2);display:flex;flex-direction:column;gap:6px}
+.modal-body textarea{width:100%;border:1px solid var(--bd);border-radius:6px;padding:10px 12px;font-size:14px;line-height:1.5;background:var(--bg1);transition:all .15s;resize:vertical}
+.modal-body textarea:hover{border-color:var(--bd-h)}
+.modal-body textarea:focus{border-color:var(--pri);box-shadow:0 0 0 2px rgba(22,93,255,.1)}
+.modal-body textarea::placeholder{color:var(--t3)}
 .modal-footer{padding:12px 20px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:8px;background:var(--bg2);flex-shrink:0}
 
 /* UPLOAD */
@@ -275,6 +292,18 @@ svg{display:block}
 .form-control[readonly]{background:var(--bg2);cursor:default;color:var(--t2)}
 textarea.form-control{height:auto;min-height:64px;padding:8px 12px;resize:vertical;line-height:1.5}
 .form-row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* autocomplete */
+.ac-wrap{position:relative}
+.ac-drop{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.1);z-index:9999;max-height:220px;overflow-y:auto;display:none}
+.ac-drop.show{display:block}
+.ac-item{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;font-size:13px;cursor:pointer;color:var(--t1);transition:background .1s}
+.ac-item:hover,.ac-item.ac-active{background:var(--bg2)}
+.ac-item-name{font-weight:500}
+.ac-item-emp{color:var(--t3);font-size:12px;font-family:monospace}
+.ac-empty{padding:10px 12px;font-size:13px;color:var(--t3);text-align:center}
+/* edit user modal */
+.eu-form-hint{font-size:12px;color:var(--t3);margin-top:4px}
 select.form-control{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%2386909C' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
 
 /* FILTER PANEL */
@@ -795,6 +824,138 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 .login-form label{font-size:13px;color:var(--t2);display:flex;flex-direction:column;gap:4px}
 .login-form input{height:36px;border:1px solid var(--bd);border-radius:6px;padding:0 10px;font-size:14px}
 .login-hint{font-size:12px;color:var(--t3);line-height:1.5}
+.admin-content{padding:20px 24px;max-width:1100px;margin:0 auto;width:100%}
+.admin-h2{font-size:18px;margin:0 0 16px;font-weight:600}
+.admin-warn{background:var(--warn-lt);border:1px solid #ffd591;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px}
+.admin-pane{display:none}.admin-pane.active{display:block}
+.admin-table{margin-top:12px}
+.admin-card{border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-detail{background:#fff;color:var(--t2);border-color:var(--bd)}.btn-detail:hover{background:var(--bg2);color:var(--t1)}
+.btn-accept{background:#1677ff;color:#fff;border-color:#1677ff}.btn-accept:hover{background:#0958d9;border-color:#0958d9}
+.btn-complete{background:#52c41a;color:#fff;border-color:#52c41a}.btn-complete:hover{background:#389e0d;border-color:#389e0d}
+.btn-release{background:#fa8c16;color:#fff;border-color:#fa8c16}.btn-release:hover{background:#d46b08;border-color:#d46b08}
+.btn-reject-ticket{background:#fff;color:#cf1322;border-color:#ffa39e}.btn-reject-ticket:hover{background:#fff1f0;border-color:#cf1322}
+.tk-reject-reason{margin:8px 0;padding:8px 12px;background:#fff1f0;border:1px solid #ffa39e;border-radius:6px;font-size:13px;color:#cf1322;line-height:1.5}
+.tk-reject-label{font-weight:600;margin-right:8px}
+/* ── ticket detail modal layout ───────────────────── */
+.td-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--bd)}
+.td-meta{font-size:12px;color:var(--t3)}
+.td-section{margin:12px 0}
+.td-section-title{font-weight:600;font-size:13px;color:var(--t2);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--bg2)}
+.td-content-biz{font-size:14px;color:var(--t1);line-height:1.7}
+.td-draft-row{display:flex;gap:8px;margin:4px 0;font-size:13px;line-height:1.6}
+.td-draft-label{flex-shrink:0;width:46px;color:var(--t3);text-align:right}
+.td-hypothesis{color:var(--t2);font-style:italic}
+.td-runids{font-family:monospace;font-size:12px;color:#1677ff;word-break:break-all}
+.td-biz-problem{font-size:14px;color:var(--t1);line-height:1.7;margin-bottom:4px}
+.td-impact{font-size:12px;margin-top:2px}
+.tkt-no-link{font-family:monospace;font-size:12px;font-weight:600;color:#1677ff;cursor:pointer}
+.muted{color:var(--t3);font-size:13px}
+.tk-status{display:inline-block;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:500;line-height:1.6;border:1px solid transparent}
+.tk-st-pending{background:#fff7e6;color:#d46b08;border-color:#ffd591}
+.tk-st-progress{background:#e6f4ff;color:#1677ff;border-color:#91caff}
+.tk-st-gate{background:#f9f0ff;color:#722ed1;border-color:#d3adf7}
+.tk-st-done{background:#f6ffed;color:#389e0d;border-color:#b7eb8f}
+.tk-st-rejected{background:#fff1f0;color:#cf1322;border-color:#ffa39e}
+.tk-st-hold{background:#fffbe6;color:#d48806;border-color:#ffe58f}
+.tk-st-default{background:var(--bg2);color:var(--t2);border-color:var(--bd)}
+.tkt-toolbar{display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+.tkt-filter-label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2)}
+.tkt-filter-select{height:30px;border:1px solid var(--bd);border-radius:4px;padding:0 8px;font-size:13px;background:var(--bg1);color:var(--t1);cursor:pointer}
+.tkt-filter-select:focus{outline:none;border-color:#1677ff}
+.tkt-result-hint{font-size:12px;color:var(--t3);margin-left:4px}
+.tk-cell-biz{max-width:360px;line-height:1.5}
+/* 我的工单列宽 */
+.tkt-mine{min-width:820px;table-layout:fixed}
+.tkt-col-no{width:70px}
+.tkt-col-body{width:auto}
+.tkt-col-src{width:180px}
+.tkt-col-st{width:80px;white-space:nowrap}
+.tkt-col-note{width:140px}
+.tkt-col-ops{width:200px;white-space:nowrap}
+.tkt-mine td{white-space:normal;vertical-align:middle}
+.tkt-mine td:nth-child(1){white-space:nowrap;font-variant-numeric:tabular-nums}
+.tkt-mine td:nth-child(4){white-space:nowrap}
+.tkt-mine td:nth-child(6){white-space:nowrap}
+
+/* 复盘报告 - 一份报告一个大卡片 */
+.rv-report{border:1px solid var(--bd);border-radius:12px;padding:20px 22px;margin-bottom:18px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.03);transition:box-shadow .15s}
+.rv-report:hover{box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.rv-report-head{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--bd);flex-wrap:wrap;gap:8px}
+.rv-report-title{font-size:17px;font-weight:600;color:var(--t1)}
+.rv-report-meta{font-size:12px;color:var(--t3)}
+.rv-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.rv-metric{background:#f7f8fa;border-radius:10px;padding:14px 16px;border:1px solid #eef0f3}
+.rv-metric-label{font-size:12px;color:var(--t3);margin-bottom:6px}
+.rv-metric-value{font-size:22px;font-weight:600;color:var(--t1);line-height:1.2}
+.rv-section{margin-bottom:16px}
+.rv-section:last-child{margin-bottom:0}
+.rv-section-title{font-size:14px;font-weight:600;color:var(--t2);margin-bottom:10px;padding-left:8px;border-left:3px solid var(--brand,#2b6cb0)}
+.rv-finding{padding:12px 14px;background:#fafbfc;border:1px solid #eef0f3;border-radius:8px;margin-bottom:8px}
+.rv-finding:last-child{margin-bottom:0}
+.rv-finding-text{font-size:14px;font-weight:500;color:var(--t1);margin-bottom:4px}
+.rv-finding-sub{font-size:12px;color:var(--t3)}
+.rv-suggestion{padding:14px;background:#fafbfc;border:1px solid #eef0f3;border-radius:8px;margin-bottom:8px}
+.rv-suggestion:last-child{margin-bottom:0}
+.rv-suggestion-title{font-size:14px;font-weight:500;color:var(--t1);margin-bottom:4px}
+.rv-suggestion-sub{font-size:12px;color:var(--t3);margin-bottom:10px}
+.rv-suggestion-actions{display:flex;gap:8px}
+.rv-empty{padding:40px 20px;text-align:center;color:var(--t3);background:#fafbfc;border:1px dashed var(--bd);border-radius:10px}
+.rv-empty-error{color:#c53030;background:#fef5f5;border-color:#fed7d7}
+.rv-layout{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start}
+.rv-layout.no-sidebar{grid-template-columns:1fr}
+.rv-layout.tech-readonly .rv-hold-sidebar{display:none!important;visibility:hidden;height:0;overflow:hidden;padding:0;border:0}
+.rv-suggestion-status.muted-ro{color:var(--t3);font-size:13px}
+.rv-finding-warn{color:#b45309;font-size:12px;margin:4px 0}
+.ticket-notes-block{margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)}
+.ticket-note-item{margin:8px 0;padding:8px;background:var(--bg2);border-radius:6px}
+.rv-hold-sidebar{position:sticky;top:12px;border:1px solid var(--bd);border-radius:12px;padding:14px;background:#fffbeb}
+.rv-hold-title{font-size:14px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.rv-hold-badge{background:#f59e0b;color:#fff;font-size:11px;padding:2px 7px;border-radius:10px}
+.rv-hold-item{border:1px solid #fde68a;border-radius:8px;padding:10px;margin-bottom:8px;background:#fff}
+.rv-hold-item-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.rv-hold-item-meta{font-size:11px;color:var(--t3);margin-bottom:8px}
+.rv-suggestion-status{display:inline-flex;align-items:center;gap:6px;font-size:13px;margin-top:8px}
+.rv-suggestion-status.accepted{color:#16a34a}
+.rv-suggestion-status.rejected{color:#dc2626}
+.rv-suggestion-status.hold{color:#d97706}
+.rv-finding-alert{color:#d97706;font-size:12px;margin:6px 0;padding:6px 8px;background:#fffbeb;border-radius:6px}
+.rv-readonly-banner{font-size:13px;color:var(--t2);background:#f0f5ff;border:1px solid #bedaff;border-radius:8px;padding:10px 14px;margin-bottom:14px;line-height:1.5}
+.rv-finding-tech-view{border-color:#bedaff;background:#f7faff}
+.rv-finding-tech{margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #d6e4ff;border-radius:6px;font-size:12px}
+.rv-finding-tech-title{font-weight:600;color:#165dff;margin-bottom:6px;font-size:12px}
+.rv-finding-tech-row{margin:4px 0;color:var(--t1)}
+.rv-tech-label{display:inline-block;min-width:72px;color:var(--t3);margin-right:6px}
+.rv-run-ids{font-family:ui-monospace,monospace;font-size:11px;color:#1d2129;word-break:break-all}
+.rv-finding-tech-hint{margin-top:6px;color:var(--t3);font-size:11px}
+.rv-suggestion-status.pending-ro{color:var(--t2);font-size:13px}
+.rv-suggestion-hint{font-size:11px;color:var(--t3);margin-left:6px}
+.rv-suggestion-readonly{opacity:.98}
+@media (max-width: 960px){
+  .rv-layout{grid-template-columns:1fr}
+  .rv-hold-sidebar{position:static}
+}
+@media (max-width: 768px){
+  .rv-metrics{grid-template-columns:repeat(2,1fr)}
+  .rv-report{padding:16px}
+}
+
+/* 评测中心（沿用复盘卡片风格） */
+.ev-run-list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.ev-run-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;background:#fff}
+.ev-run-item:hover{border-color:var(--brand,#2b6cb0);background:#f7faff}
+.ev-run-item.active{border-color:var(--brand,#2b6cb0);background:#ebf4ff}
+.ev-run-meta{font-size:12px;color:var(--t3)}
+.ev-intent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin:12px 0}
+.ev-intent-cell{background:#f7f8fa;border-radius:8px;padding:10px 12px;border:1px solid #eef0f3}
+.ev-intent-name{font-size:12px;color:var(--t3)}
+.ev-intent-score{font-size:18px;font-weight:600;color:var(--t1)}
+.ev-weak{padding:10px 12px;background:#fff8e6;border:1px solid #ffe58f;border-radius:8px;margin-bottom:8px;font-size:13px}
+.ev-case-fail{color:#c53030;font-size:12px;margin-top:4px}
+.ev-status-running{color:#d97706;font-weight:500}
+.ev-status-done{color:#16a34a;font-weight:500}
+.ev-status-failed{color:#dc2626;font-weight:500}
 
 /* 未登录：隐藏业务区，仅展示登录弹窗 */
 .app.auth-locked .mode-nav,
@@ -822,6 +983,7 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
       <input type="text" id="globalSearch" placeholder="本表内搜索">
     </div>
     <div class="spacer"></div>
+    <nav class="mode-nav" id="adminNav" style="display:none"></nav>
     <div class="header-right" id="authBar"></div>
   </header>
 
@@ -876,6 +1038,117 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
       </aside>
     </div>
   </div>
+
+  <!-- ============ 系统管理 / 改进闭环 ============ -->
+  <div class="app-body mode-pane2" id="pane-admin">
+    <main class="app-content admin-content">
+      <div class="admin-pane active" id="admin-users">
+        <h2 class="admin-h2">系统管理 › 用户与角色管理 <button class="btn btn-primary btn-sm" style="float:right" onclick="openCreateUserModal()">+ 新建账号</button></h2>
+        <p class="admin-warn">⚠ 薪资访问权随业务超管角色自带，不单独授予。创建业务超管后需移交（首次登录强制改密）。</p>
+        <table class="dt admin-table"><thead><tr><th>姓名</th><th>工号</th><th>角色</th><th>状态</th><th>操作</th></tr></thead><tbody id="adminUsersBody"></tbody></table>
+      </div>
+      <div class="admin-pane" id="admin-payroll-audit">
+        <h2 class="admin-h2">薪资访问审计</h2>
+        <p class="muted">仅记录"谁查了什么"的访问元数据，不展示薪资数值。技术超管可见此页（监督用），但永远看不到任何薪资金额。</p>
+        <table class="dt admin-table"><thead><tr><th>时间</th><th>访问人</th><th>访问对象</th><th>入口</th><th>字段</th><th>事由</th></tr></thead><tbody id="adminPayrollAuditBody"></tbody></table>
+      </div>
+      <div class="admin-pane" id="admin-review">
+        <h2 class="admin-h2">复盘报告 <span class="muted" id="reviewPeriod"></span></h2>
+        <p class="muted">复盘仅基于运行元数据（全量聚合），不含薪资数值、不暴露任何个人逐条问答原文。👍/👎 为聚合统计，非点名。</p>
+        <div id="reviewReadonlyBanner" class="rv-readonly-banner" style="display:none"></div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:14px">
+            <span style="color:var(--t2)">筛选周期：</span>
+            <select id="reviewWeekSelector" class="btn" style="min-width:200px">
+              <option value="all" selected>全部报告</option>
+            </select>
+          </label>
+          <button class="btn btn-primary" onclick="loadReviewPageWithFilter()">查看</button>
+          <span style="color:var(--t3);font-size:13px;margin-left:auto">复盘 Agent 每周自动生成一次增量报告</span>
+        </div>
+        <div class="rv-layout no-sidebar tech-readonly" id="reviewLayout">
+          <div id="adminReviewBody"></div>
+          <aside class="rv-hold-sidebar" id="reviewHoldSidebar" hidden style="display:none" aria-hidden="true">
+            <div class="rv-hold-title">存疑待办 <span class="rv-hold-badge" id="reviewHoldBadge">0</span></div>
+            <div id="reviewHoldList"></div>
+          </aside>
+        </div>
+      </div>
+      <div class="admin-pane" id="admin-tickets">
+        <h2 class="admin-h2">改进工单追踪</h2>
+        <p class="muted">业务超管对自己提的工单：备注通过「编辑」追加留言（不修改工单主体）；待处理时可撤回。</p>
+        <div class="tkt-toolbar">
+          <label class="tkt-filter-label">状态</label>
+          <select id="ticketsStatusFilter" class="tkt-filter-select">
+            <option value="">全部状态</option>
+            <option value="pending">待处理</option>
+            <option value="in_progress">处理中</option>
+            <option value="awaiting_gate">待验证</option>
+            <option value="released">已上线</option>
+            <option value="rejected">已驳回</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="applyTicketsFilter(false)">查询</button>
+          <button class="btn btn-sm" onclick="clearTicketsFilter(false)">清空</button>
+          <span class="tkt-result-hint" id="ticketsResultHint"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="dt admin-table tkt-mine"><thead><tr>
+            <th class="tkt-col-no">工单#</th>
+            <th class="tkt-col-body">内容</th>
+            <th class="tkt-col-src">来源</th>
+            <th class="tkt-col-st">状态</th>
+            <th class="tkt-col-no">负责人</th>
+            <th class="tkt-col-note">备注</th>
+            <th class="tkt-col-ops">操作</th>
+          </tr></thead><tbody id="adminTicketsBody"></tbody></table>
+        </div>
+      </div>
+      <div class="admin-pane" id="admin-my-tickets">
+        <h2 class="admin-h2">我的工单（技术主管）</h2>
+        <p class="muted">工单"已完成"后自动触发测试门禁，全绿+二次确认才"已上线"。任何人不能跳过门禁。</p>
+        <div class="tkt-toolbar">
+          <label class="tkt-filter-label">状态</label>
+          <select id="myTicketsStatusFilter" class="tkt-filter-select">
+            <option value="">全部状态</option>
+            <option value="pending">待处理</option>
+            <option value="in_progress">处理中</option>
+            <option value="awaiting_gate">待验证</option>
+            <option value="released">已上线</option>
+            <option value="rejected">已驳回</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="applyTicketsFilter(true)">查询</button>
+          <button class="btn btn-sm" onclick="clearTicketsFilter(true)">清空</button>
+          <span class="tkt-result-hint" id="myTicketsResultHint"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="dt admin-table tkt-mine"><thead><tr>
+            <th class="tkt-col-no">工单#</th>
+            <th class="tkt-col-body">内容</th>
+            <th class="tkt-col-src">来源</th>
+            <th class="tkt-col-st">状态</th>
+            <th class="tkt-col-note">备注</th>
+            <th class="tkt-col-ops">操作</th>
+          </tr></thead><tbody id="adminMyTicketsBody"></tbody></table>
+        </div>
+      </div>
+      <div class="admin-pane" id="admin-eval">
+        <h2 class="admin-h2">评测中心</h2>
+        <p class="muted">Eval 打分看趋势（不拦上线）；Test 门禁拦回归。跑批时现场重跑当前系统，不读历史 trace 打分。</p>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-primary btn-sm" id="evalTriggerL1" onclick="triggerEvalRun(true)">快速评测（仅 Layer1）</button>
+          <button class="btn btn-sm" id="evalTriggerFull" onclick="triggerEvalRun(false)">完整评测（三层，较慢）</button>
+          <span class="muted" id="evalTriggerStatus"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start">
+          <div>
+            <div class="rv-section-title" style="margin-bottom:8px">历史跑批</div>
+            <div class="ev-run-list" id="evalRunList"><div class="rv-empty">加载中…</div></div>
+          </div>
+          <div id="evalRunDetail"><div class="rv-empty">选择左侧跑批记录查看报告</div></div>
+        </div>
+      </div>
+    </main>
+  </div>
 </div>
 
 <!-- 从溯源跳转后的返回浮条 -->
@@ -883,6 +1156,13 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
   <span class="bf-txt" id="bfTxt"></span>
   <button class="bf-btn" onclick="backToAi()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>返回问答</button>
   <span class="bf-close" onclick="hideBackFloat()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+</div>
+
+<!-- 从工单跳转至复盘报告后的返回浮条 -->
+<div class="back-float" id="backFloatTickets">
+  <span class="bf-txt" id="bfTicketsTxt"></span>
+  <button class="bf-btn" onclick="returnFromReviewToTickets()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>返回工单</button>
+  <span class="bf-close" onclick="hideBackFloatTickets()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
 </div>
 
 <!-- 登录 -->
@@ -893,7 +1173,7 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
     <div class="login-form">
       <label>账号<input id="loginUser" type="text" placeholder="用户名" autocomplete="username"></label>
       <label>密码<input id="loginPass" type="password" placeholder="密码" autocomplete="current-password"></label>
-      <div class="login-hint">账号与角色由系统管理员在数据库维护；演示账号：hr_admin / admin123，viewer / viewer123</div>
+      <div class="login-hint">演示账号：tech_admin/tech123（技术超管，永久无薪资权）· biz_hrd/hrd123（业务超管[🔑]，岗位自带薪资权）· staff1/staff123（普通员工，永久薪资隔离）</div>
     </div>
   </div>
   <div class="modal-footer"><button class="btn" onclick="closeModal('loginModal')">取消</button><button class="btn btn-primary" onclick="submitLoginForm()">登录</button></div>
@@ -938,7 +1218,137 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
   <div class="modal-footer"><button class="btn" onclick="closeModal('editModal')">取消</button><button class="btn btn-primary" onclick="editSave()">保存</button></div>
 </div></div>
 
+<!-- 薪资访问二次确认 -->
+<div class="modal" id="payrollConfirmModal"><div class="modal-dialog dialog-sm">
+  <div class="modal-header"><div class="modal-title">薪资数据访问确认</div></div>
+  <div class="modal-body">
+    <p>你即将查看：<strong id="payrollConfirmTarget"></strong></p>
+    <p>访问入口：<span id="payrollConfirmEntry"></span></p>
+    <label style="margin-top:8px">
+      <span style="font-weight:500;margin-bottom:6px;display:block">访问事由</span>
+      <textarea id="payrollConfirmReason" rows="3" placeholder="必填，用于合规审计"></textarea>
+    </label>
+    <p class="muted" style="margin-top:8px;font-size:12px">此次访问将记录访问人、对象、时间、字段、事由。</p>
+  </div>
+  <div class="modal-footer"><button class="btn" onclick="cancelPayrollConfirm()">取消</button><button class="btn btn-primary" onclick="submitPayrollConfirm()">确认并查看</button></div>
+</div></div>
+
 <!-- 删除确认 -->
+<div class="modal" id="ticketNoteModal"><div class="modal-dialog dialog-sm" style="width:520px">
+  <div class="modal-header">
+    <div class="modal-title">编辑备注 · <span id="ticketNoteModalNo"></span></div>
+    <div class="modal-close" onclick="closeModal('ticketNoteModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body">
+    <p class="muted" style="margin:0 0 10px;font-size:12px">备注为追加留言，带提交人与时间，不覆盖工单主体内容。</p>
+    <div id="ticketNoteHistory" class="ticket-notes-block" style="max-height:160px;overflow-y:auto;margin-bottom:12px"></div>
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--t2)">
+      <span>追加备注</span>
+      <textarea id="ticketNoteInput" rows="4" placeholder="填写备注内容…"></textarea>
+    </label>
+  </div>
+  <div class="modal-footer">
+    <button class="btn" onclick="closeModal('ticketNoteModal')">取消</button>
+    <button class="btn btn-primary" onclick="submitTicketNote()">保存</button>
+  </div>
+</div></div>
+
+<div class="modal" id="ticketDetailModal"><div class="modal-dialog" style="width:640px">
+  <div class="modal-header" style="flex-wrap:wrap;gap:8px">
+    <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+      <a href="javascript:void(0)" class="action-link" id="ticketBackReview" style="display:none;font-size:13px" onclick="returnFromTicketDetail()">← 返回复盘报告</a>
+      <div class="modal-title" id="ticketDetailTitle">工单详情</div>
+    </div>
+    <div class="modal-close" onclick="closeModal('ticketDetailModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body" id="ticketDetailBody" style="font-size:13px;line-height:1.6"></div>
+  <div class="modal-footer" id="ticketDetailFooter"></div>
+</div></div>
+
+<!-- ── 新建账号 modal ── -->
+<div class="modal" id="createUserModal"><div class="modal-dialog" style="width:480px">
+  <div class="modal-header">
+    <div class="modal-title">新建账号</div>
+    <div class="modal-close" onclick="closeModal('createUserModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body" style="padding-bottom:12px">
+    <div class="form-row-2">
+      <div class="form-item">
+        <div class="form-label">姓名 <span class="required">*</span></div>
+        <div class="ac-wrap">
+          <input class="form-control" id="cuDisplayName" placeholder="输入姓名搜索…" autocomplete="off">
+          <div class="ac-drop" id="cuNameDrop"></div>
+        </div>
+      </div>
+      <div class="form-item">
+        <div class="form-label">工号 <span class="required">*</span></div>
+        <div class="ac-wrap">
+          <input class="form-control" id="cuEmployeeId" placeholder="输入工号搜索…" autocomplete="off">
+          <div class="ac-drop" id="cuEmpDrop"></div>
+        </div>
+      </div>
+    </div>
+    <div class="form-item">
+      <div class="form-label">角色 <span class="required">*</span></div>
+      <select class="form-control" id="cuRole">
+        <option value="staff">普通员工</option>
+        <option value="biz_super_admin">业务超管</option>
+        <option value="tech_super_admin">技术超管</option>
+      </select>
+    </div>
+    <div class="form-row-2">
+      <div class="form-item">
+        <div class="form-label">登录名 <span class="required">*</span></div>
+        <input class="form-control" id="cuUsername" placeholder="账号（用于登录）">
+      </div>
+      <div class="form-item">
+        <div class="form-label">初始密码 <span class="required">*</span></div>
+        <input class="form-control" type="password" id="cuPassword" placeholder="设置初始密码">
+      </div>
+    </div>
+    <div id="cuErrMsg" style="color:var(--dan);font-size:12px;min-height:16px"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn" onclick="closeModal('createUserModal')">取消</button>
+    <button class="btn btn-primary" onclick="submitCreateUser()">创建账号</button>
+  </div>
+</div></div>
+
+<!-- ── 编辑账号 modal ── -->
+<div class="modal" id="editUserModal"><div class="modal-dialog" style="width:440px">
+  <div class="modal-header">
+    <div class="modal-title">编辑账号 · <span id="euUsername"></span></div>
+    <div class="modal-close" onclick="closeModal('editUserModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body" style="padding-bottom:12px">
+    <div class="form-item">
+      <div class="form-label">角色</div>
+      <select class="form-control" id="euRole">
+        <option value="staff">普通员工</option>
+        <option value="biz_super_admin">业务超管</option>
+        <option value="tech_super_admin">技术超管</option>
+      </select>
+      <div class="eu-form-hint">修改角色将立即影响该账号的菜单权限</div>
+    </div>
+    <div class="form-item">
+      <div class="form-label">姓名显示</div>
+      <input class="form-control" id="euDisplayName" placeholder="显示姓名（可选）">
+    </div>
+    <div class="form-item">
+      <div class="form-label">状态</div>
+      <select class="form-control" id="euIsActive">
+        <option value="1">启用</option>
+        <option value="0">停用</option>
+      </select>
+    </div>
+    <div id="euErrMsg" style="color:var(--dan);font-size:12px;min-height:16px"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn" onclick="closeModal('editUserModal')">取消</button>
+    <button class="btn btn-primary" onclick="submitEditUser()">保存</button>
+  </div>
+</div></div>
+
 <div class="modal" id="delModal"><div class="modal-dialog dialog-sm">
   <div class="modal-header"><div class="modal-title">确认删除</div>
     <div class="modal-close" onclick="closeModal('delModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
@@ -960,7 +1370,14 @@ const AUTH = {
   role: localStorage.getItem('hr_role') || '',
   username: localStorage.getItem('hr_username') || '',
   displayName: localStorage.getItem('hr_display_name') || '',
+  employeeId: '',
+  payrollAccess: localStorage.getItem('hr_payroll_access') === '1',
+  payrollConfirmToken: '',
+  payrollConfirmedUntil: 0,  // 薪资确认有效期（时间戳），30分钟TTL，数据中台和智能体共用
+  payrollConfirmReason: '',  // 本次确认的事由，TTL期内复用
+  mustChangePassword: false,
 };
+window.AUTH = AUTH;  // 挂载到全局，供 permission-admin.js 访问
 const ROLE_LABELS = {
   super_admin: '超级管理员',
   hr_admin: 'HR 管理员',
@@ -973,6 +1390,12 @@ function apiHeaders(extra={}, opts={}){
   const h = {...extra};
   if(!opts.skipJson) h['Content-Type'] = 'application/json';
   if(AUTH.token) h['Authorization'] = 'Bearer '+AUTH.token;
+  // 确保使用window.AUTH（与permission-admin.js共享）
+  const token = window.AUTH.payrollConfirmToken || AUTH.payrollConfirmToken;
+  if(token) {
+    h['X-Payroll-Confirm'] = token;
+    console.log('[API请求] 添加薪资确认头:', token);
+  }
   return h;
 }
 async function authLogin(username, password){
@@ -1031,7 +1454,10 @@ async function submitLoginForm(){
   const username=($('loginUser')?.value||'').trim();
   const password=$('loginPass')?.value||'';
   if(!username||!password){ toast('请输入账号和密码','danger'); return; }
-  try{ await authLogin(username, password); }
+  try{
+    if(window.authLogin) await window.authLogin(username, password);
+    else await authLogin(username, password);
+  }
   catch(err){ toast('登录失败：'+(err.message||'账号或密码错误'),'danger'); }
 }
 function renderAuthBar(){
@@ -1042,10 +1468,34 @@ function renderAuthBar(){
   }
   const shown = AUTH.displayName || AUTH.username || '';
   const role = roleLabel(AUTH.role);
-  const nameHtml = shown ? `<span class="auth-user">${escAi(shown)}</span>` : '';
-  const roleHtml = role && role !== shown ? `<span class="auth-role">${escAi(role)}</span>` : '';
-  el.innerHTML = `${nameHtml}${roleHtml}<button class="btn btn-sm" onclick="authLogout()">退出</button>`;
+  const initial = shown ? shown.charAt(0).toUpperCase() : 'U';
+  el.innerHTML = `
+    <div class="user-block" onclick="toggleUserDropdown(event)">
+      <div class="user-avatar">${escAi(initial)}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start">
+        <span class="user-name">${escAi(shown)}</span>
+        ${role ? `<span class="user-role">${escAi(role)}</span>` : ''}
+      </div>
+      <svg class="user-dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </div>
+    <div class="user-dropdown" id="userDropdown"></div>
+  `;
+  // 调用 permission-admin.js 中的函数来渲染下拉菜单内容
+  if(window.renderUserDropdown) window.renderUserDropdown();
 }
+function toggleUserDropdown(e){
+  e.stopPropagation();
+  const dropdown = $('userDropdown');
+  if(!dropdown) return;
+  dropdown.classList.toggle('show');
+}
+// 点击其他地方关闭下拉菜单
+document.addEventListener('click', function(){
+  const dropdown = $('userDropdown');
+  if(dropdown) dropdown.classList.remove('show');
+});
 function requireAuth(action){
   if(AUTH.token) return true;
   toast('请先登录后再'+action,'danger');
@@ -1053,44 +1503,61 @@ function requireAuth(action){
   return false;
 }
 
+function forceReauth(msg){
+  AUTH.token=''; AUTH.role=''; AUTH.username=''; AUTH.displayName='';
+  AUTH.payrollConfirmToken=''; AUTH.payrollConfirmedUntil=0;
+  localStorage.removeItem('hr_token');
+  localStorage.removeItem('hr_role');
+  localStorage.removeItem('hr_username');
+  localStorage.removeItem('hr_display_name');
+  renderAuthBar();
+  if(window.renderAdminNav) window.renderAdminNav();
+  syncAuthGate();
+  toast(msg||'登录已过期，请重新登录','danger');
+}
+
+async function parseApiResponse(res){
+  let json = {};
+  try{ json = await res.json(); }catch(_){ /* 非 JSON 响应 */ }
+  if(res.status === 401 || json.code === 401){
+    forceReauth(json.msg || '登录已过期，请重新登录');
+    throw new Error(json.msg || '登录已过期，请重新登录');
+  }
+  if(!res.ok) throw new Error(json.msg || ('HTTP '+res.status));
+  if(json.code !== 0) throw new Error(json.msg || '请求失败');
+  return json.data;
+}
+
 async function apiGet(path, params){
   const qs = new URLSearchParams();
   if(params) for(const [k,v] of Object.entries(params)){ if(v!=null && v!=='') qs.append(k, v); }
   const url = API_BASE + path + (qs.toString() ? '?'+qs : '');
   const res = await fetch(url, { headers: apiHeaders() });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const json = await res.json();
-  if(json.code !== 0) throw new Error(json.msg || '请求失败');
-  return json.data;
+  return parseApiResponse(res);
 }
 async function apiPost(path, body){
   const res = await fetch(API_BASE + path, { method:'POST', headers:apiHeaders(), body:JSON.stringify(body||{}) });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const json = await res.json();
-  if(json.code !== 0) throw new Error(json.msg || '请求失败');
-  return json.data;
+  return parseApiResponse(res);
 }
 async function apiPut(path, body){
   const res = await fetch(API_BASE + path, { method:'PUT', headers:apiHeaders(), body:JSON.stringify(body||{}) });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const json = await res.json();
-  if(json.code !== 0) throw new Error(json.msg || '请求失败');
-  return json.data;
+  return parseApiResponse(res);
 }
 async function apiDelete(path, body){
   const res = await fetch(API_BASE + path, { method:'DELETE', headers:apiHeaders(), body:JSON.stringify(body||{}) });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const json = await res.json();
-  if(json.code !== 0) throw new Error(json.msg || '请求失败');
-  return json.data;
+  return parseApiResponse(res);
 }
 async function apiFormPost(path, formData){
   const res = await fetch(API_BASE + path, { method:'POST', headers:apiHeaders({}, {skipJson:true}), body: formData });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const json = await res.json();
-  if(json.code !== 0) throw new Error(json.msg || '请求失败');
-  return json.data;
+  return parseApiResponse(res);
 }
+window.apiGet = apiGet;
+window.apiPost = apiPost;
+window.apiPut = apiPut;
+window.apiDelete = apiDelete;
+window.apiFormPost = apiFormPost;
+window.forceReauth = forceReauth;
+window.parseApiResponse = parseApiResponse;
 function mapDocItem(d){
   return {
     id:d.id,
@@ -1346,25 +1813,127 @@ function closeModal(id){
 
 /* ---------- 侧边树 ---------- */
 function renderTree(){
-  $('categoryTree').innerHTML=categoryTree.map(l1=>{
+  let tree = categoryTree;
+  try {
+    tree = typeof filterCategoryTree==='function' ? filterCategoryTree(categoryTree) : categoryTree;
+  } catch (e) {
+    console.error('[renderTree] filterCategoryTree failed', e);
+    tree = categoryTree;
+  }
+  if(!Array.isArray(tree) || !tree.length){
+    $('categoryTree').innerHTML = '<div class="muted" style="padding:8px;font-size:12px">分类加载失败，请刷新页面</div>';
+    return;
+  }
+  $('categoryTree').innerHTML=tree.map(l1=>{
     const exp=state.expandedL1.has(l1.id);
+    const disabled = l1.disabled || false;
+    const disabledStyle = disabled ? ' style="opacity:0.4;cursor:not-allowed"' : '';
+    const onClickL1 = disabled ? '' : `onclick="toggleL1('${l1.id}')"`;
     const childs=l1.children.map(l2=>`<div class="tree-node tree-l2"><div class="tree-row ${l2.id===state.activeL2?'active':''}" onclick="selectL2('${l2.id}')"><span>${esc(l2.name)}</span></div></div>`).join('');
-    return `<div class="tree-node tree-l1"><div class="tree-row" onclick="toggleL1('${l1.id}')">
+    return `<div class="tree-node tree-l1"><div class="tree-row" ${onClickL1}${disabledStyle}>
       <span class="tree-arrow ${exp?'expanded':''}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></span>
       <span class="tree-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
-      <span>${esc(l1.name)}</span></div>
+      <span>${esc(l1.name)}${disabled?' 🔒':''}</span></div>
       <div class="tree-children ${exp?'expanded':''}">${childs}</div></div>`;
   }).join('');
 }
 function toggleL1(id){ state.expandedL1.has(id)?state.expandedL1.delete(id):state.expandedL1.add(id); renderTree(); }
-function selectL2(l2id){ hideBackFloat(); for(const l1 of categoryTree)for(const l2 of l1.children) if(l2.id===l2id){ state.expandedL1.add(l1.id); state.activeL2=l2id; state.activeL3=l2.children[0].id; } resetView(); void renderAll(); }
-function selectL3(id){ hideBackFloat(); state.activeL3=id; resetView(); void renderAll(); }
+async function selectL2(l2id){
+  hideBackFloat();
+  for(const l1 of categoryTree){
+    for(const l2 of l1.children){
+      if(l2.id === l2id){
+        state.expandedL1.add(l1.id);
+        state.activeL2 = l2id;
+        
+        // 安全检查：确保L2下有子分类
+        if(!l2.children || !l2.children[0]){
+          toast('该分类下暂无数据', 'warning');
+          return;
+        }
+        
+        // 新增：检查第一张L3是否是薪资数据（点L2进入薪资区时触发二次确认）
+        const firstL3 = l2.children[0].id;
+        const firstL3Name = l2.children[0].name;
+        const isPayroll = typeof isPayrollL3==='function' && isPayrollL3(firstL3);
+        
+        if(isPayroll){
+          if(AUTH.role === 'biz_super_admin'){
+            if(typeof ensurePayrollAccess !== 'function'){
+              toast('系统错误：缺少权限确认函数', 'danger');
+              return;
+            }
+            const ok = await ensurePayrollAccess({
+              target_ref: l2.name,  // L2分类名称（如"员工通知记录"）
+              entry: '数据中台',  // 入口
+              fields: '薪资'  // 字段
+            });
+            if(!ok) return;  // 用户取消，不加载
+          } else {
+            // 非业务超管直接拦截
+            toast('无权访问薪资数据', 'danger');
+            return;
+          }
+        }
+        
+        state.activeL3 = firstL3;
+        resetView();
+        void renderAll();
+        return;
+      }
+    }
+  }
+}
+async function selectL3(id){
+  hideBackFloat();
+
+  // 检查是否是薪资L3
+  const isPayroll = typeof isPayrollL3==='function' && isPayrollL3(id);
+
+  if(isPayroll){
+    // 业务超管需要二次确认
+    if(AUTH.role === 'biz_super_admin'){
+      if(typeof ensurePayrollAccess !== 'function'){
+        toast('系统错误：缺少权限确认函数', 'danger');
+        return;
+      }
+      
+      // 找到当前L3所属的L2分类名称
+      let l2Name = '';
+      for(const l1 of categoryTree){
+        for(const l2 of l1.children){
+          if(l2.children && l2.children.some(l3 => l3.id === id)){
+            l2Name = l2.name;
+            break;
+          }
+        }
+        if(l2Name) break;
+      }
+      
+      const ok = await ensurePayrollAccess({
+        target_ref: l2Name || l3Name(id),  // L2分类名称，如果找不到则用L3表名兜底
+        entry: '数据中台',  // 入口
+        fields: '薪资'  // 字段
+      });
+      if(!ok) return;
+    } else {
+      // 非业务超管直接拦截
+      toast('无权访问薪资数据', 'danger');
+      return;
+    }
+  }
+
+  state.activeL3=id; resetView(); void renderAll();
+}
 function resetView(){ state.page=1; state.filters={}; state.search=''; state.selected.clear(); state.filterOptions={}; state.api={loading:false,total:0,rows:[]}; state.docApi={loading:false,total:0,rows:[]}; $('globalSearch').value=''; $('detailView').style.display='none'; $('listView').style.display='block'; }
 
 /* ---------- 主渲染 ---------- */
 async function renderAll(){
-  renderTree(); renderHeader();
-  const c=findCat(), s=sourceOf(c.l3.id);
+  renderTree();
+  const c=findCat();
+  if(!c){ $('totalCount').textContent='0'; return; }
+  renderHeader();
+  const s=sourceOf(c.l3.id);
   if(isDataTable(s)){
     await loadFilterOptions(c.l3.id);
     if(s==='feishu') await loadFeishuStatus(c.l3.id);
@@ -1942,6 +2511,8 @@ function switchMode(m){
   document.getElementById('tab-ai').classList.toggle('active', m==='ai');
   document.getElementById('pane-data').classList.toggle('active', m==='data');
   document.getElementById('pane-ai').classList.toggle('active', m==='ai');
+  const paneAdmin=document.getElementById('pane-admin');
+  if(paneAdmin) paneAdmin.classList.toggle('active', m==='admin');
   document.getElementById('dataSearchBox').style.visibility = (m==='data')?'visible':'hidden';
   if(m==='ai'){ renderAiHistory(); renderAiThread(); }
 }
@@ -2077,6 +2648,46 @@ function aiAsk(){
   runAgentStream(s,t);
 }
 
+async function handlePayrollConfirmForAgent(s, msg){
+  // 打开薪资二次确认弹窗（智能体入口）
+  console.log('[智能体薪资] 开始处理薪资确认，全局重试次数:', AI.payrollConfirmRetry || 0);
+  console.log('[智能体薪资] 当前Token状态:', AUTH.payrollConfirmToken ? '有Token' : '无Token');
+  console.log('[智能体薪资] TTL状态:', AUTH.payrollConfirmedUntil > Date.now() ? 'TTL有效' : 'TTL已过期');
+  
+  if(typeof ensurePayrollAccess !== 'function') return;
+
+  const ok = await ensurePayrollAccess({
+    target_ref: '个人薪资查询',  // 智能体查询的对象（具体员工在后端记录）
+    entry: '智能体',  // 入口
+    fields: '薪资'  // 字段
+  });
+  
+  console.log('[智能体薪资] 确认结果:', ok);
+  console.log('[智能体薪资] 确认后Token:', AUTH.payrollConfirmToken);
+
+  if(ok && AUTH.payrollConfirmToken){
+    // 确认成功，重新发送请求
+    console.log('[智能体薪资] 确认成功，准备重新发送请求');
+    console.log('[智能体薪资] 检查apiHeaders:', apiHeaders());
+    
+    msg.answer = '<div class="ai-wait"><span class="ospin"></span><span>已确认，正在生成答案…</span></div>';
+    msg.done = false;
+    msg.needsPayrollConfirm = false;  // 标记为已处理
+    renderAiThread();
+
+    // 重新运行agent，这次带上确认token
+    // 注意：不重置计数器，如果重发后仍然reject，会触发循环保护
+    runAgentStream(s, msg.originalQuestion);
+  } else {
+    // 用户取消确认
+    console.log('[智能体薪资] 用户取消确认');
+    msg.answer = '<div class="ans-reject"><b>已取消薪资数据访问</b><br>你可以重新提问。</div>';
+    msg.needsPayrollConfirm = false;
+    AI.payrollConfirmRetry = 0;  // 重置计数器
+    renderAiThread();
+  }
+}
+
 const INTENT_LABELS={chitchat:'闲聊 · 快捷回复',policy:'制度问答 · 知识库RAG',lookup:'个人查询 · 结构化取数',list:'清单查询 · 花名册',aggregate:'聚合统计 · 结构化汇总',trend:'趋势分析 · 时序取数',forecast:'预测分析 · 编制缺口',compare:'对比分析 · 结构化取数',attribution:'归因诊断 · 结构化分析'};
 function l3Path(id){
   for(const l1 of categoryTree)for(const l2 of l1.children)for(const l3 of l2.children)
@@ -2173,11 +2784,18 @@ function aiClarifyPick(mid,idx){
   if(opt.employee) entities.employee=opt.employee;
   if(opt.lookup_scope) entities.lookup_scope=opt.lookup_scope;
   else if(opt.value&&['overview','performance','leave','attendance'].includes(opt.value)) entities.lookup_scope=opt.value;
+  // 事业部 clarify 用 next_query 作为实际查询语句（如"杭抖部门" → "杭抖部门薪资明细"）
+  // 显示给用户的仍然是 label，但发给后端的是更完整的语句，确保命中正确意图
+  const queryToSend = (typeof opt==='object' && opt.next_query) ? opt.next_query : label;
+  if(typeof opt==='object' && opt.kind==='bu' && opt.value){
+    entities.org = Object.assign({}, entities.org||{}, {事业部: opt.value});
+  }
   s.msgs.push({role:'user',text:label});
   renderAiThread();
-  runAgentStream(s,label,entities);
+  runAgentStream(s,queryToSend,entities);
 }
 async function runAgentStream(s,q,entitiesOverride){
+  console.log('[runAgentStream] 开始，Token状态:', AUTH.payrollConfirmToken ? '有' : '无');
   AI.busy=true;
   const sendBtn=$('aiSend');
   const inputWrap=document.querySelector('.ai-input-wrap');
@@ -2192,9 +2810,11 @@ async function runAgentStream(s,q,entitiesOverride){
   const history=buildAiHistory(s);
   const entities=entitiesOverride||{};
   try{
+    const headers = apiHeaders();
+    console.log('[runAgentStream] 请求头:', headers);
     const res=await fetch(`${API_BASE}/agent/ask`,{
       method:'POST',
-      headers:apiHeaders(),
+      headers:headers,
       body:JSON.stringify({question:q,stream:true,history,entities,role:AUTH.role})
     });
     if(!res.ok){ throw new Error(await res.text()||`HTTP ${res.status}`); }
@@ -2278,6 +2898,11 @@ function handleAgentEvent(msg,s,q,evt){
     msg.entities=data.entities||msg.entities||{};
     msg.note=(INTENT_LABELS[data.intent]|| (data.intent ? '智能体' : '未匹配意图'))+(data.limitation?' · '+data.limitation:'');
     AI.ctx={intent:data.intent,q:msg.question,entities:msg.entities};
+    // 成功收到答案，重置薪资确认重试计数器
+    if(AI.payrollConfirmRetry > 0){
+      console.log('[answer事件] 成功收到答案，重置薪资确认重试计数器');
+      AI.payrollConfirmRetry = 0;
+    }
   }else if(event==='clarify'){
     msg.clarifyOptions=data.options||[];
     msg.clarify={question:data.question,options:data.options,kind:data.kind||'employee'};
@@ -2288,9 +2913,48 @@ function handleAgentEvent(msg,s,q,evt){
     msg.note='请选择以继续';
     msg.done=true; msg.orchOpen=false;
   }else if(event==='reject'){
-    msg.answer=`<div class="ans-reject"><b>${escAi(data.reason||'无法回答。')}</b><br>说明：Planner 敏感校验命中，直接拒答。</div>`;
-    msg.note='安全规则 · 个人薪资明细拒答';
-    msg.done=true; msg.orchOpen=false;
+    // 两种 reject：
+    // 1) 可挽回（业务超管未确认）→ 后端带 need_payroll_confirm=true，前端弹二次确认窗
+    // 2) 真 reject（无权角色 / 其他敏感拦截）→ 直接显示拒答话术
+    // 优先用显式字段判断；兼容旧版仅靠 reason 字符串
+    const needPayrollConfirm = (data.need_payroll_confirm === true) || (data.reason === '需要二次确认');
+    if(needPayrollConfirm){
+      // 🔥 循环保护：使用全局计数器（因为每次runAgentStream都创建新msg对象）
+      if(!AI.payrollConfirmRetry) AI.payrollConfirmRetry = 0;
+      AI.payrollConfirmRetry++;
+      
+      console.log('[reject事件] 需要二次确认，全局重试次数:', AI.payrollConfirmRetry);
+      
+      // 循环保护：如果已经在处理确认，不要重复触发
+      if(msg.needsPayrollConfirm){
+        console.error('[循环保护] 检测到重复的薪资确认请求，已拦截');
+        msg.answer=`<div class="ans-reject"><b>薪资确认失败</b><br>Token传递异常，请刷新页面重试。</div>`;
+        msg.done=true; msg.orchOpen=false;
+        AI.payrollConfirmRetry = 0; // 重置计数器
+        return;
+      }
+      
+      // 检查重试次数（最多重试1次，即总共2次尝试）
+      if(AI.payrollConfirmRetry > 2){
+        console.error('[循环保护] 薪资确认重试次数超限，已累计:', AI.payrollConfirmRetry, '次');
+        msg.answer=`<div class="ans-reject"><b>薪资确认失败</b><br>后端Token验证异常，已累计 ${AI.payrollConfirmRetry} 次确认请求。请查看后端日志定位问题。</div>`;
+        msg.done=true; msg.orchOpen=false;
+        AI.payrollConfirmRetry = 0; // 重置计数器
+        return;
+      }
+      
+      // 业务超管查询薪资需要二次确认
+      msg.answer=`<div class="ans-reject"><b>薪资数据访问需要二次确认</b><br>请在弹窗中填写访问事由后查看。</div>`;
+      msg.needsPayrollConfirm = true;
+      msg.originalQuestion = q;
+      msg.done=true; msg.orchOpen=false;
+      // 触发二次确认弹窗
+      setTimeout(() => handlePayrollConfirmForAgent(s, msg), 100);
+    } else {
+      msg.answer=`<div class="ans-reject"><b>${escAi(data.reason||'无法回答。')}</b><br>说明：Planner 敏感校验命中，直接拒答。</div>`;
+      msg.note='安全规则 · 个人薪资明细拒答';
+      msg.done=true; msg.orchOpen=false;
+    }
   }else if(event==='done'){
     msg.done=true; msg.orchOpen=false;
     msg.stage=msg.steps.length;
@@ -2418,7 +3082,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderAiThread(); renderAiHistory();
   renderAuthBar();
   syncAuthGate();
+  renderAdminNav && renderAdminNav();
 });
 </script>
+<script src="permission-admin.js?v=1779988200"></script>
 </body>
 </html>

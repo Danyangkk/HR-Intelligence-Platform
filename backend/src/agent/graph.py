@@ -205,11 +205,13 @@ async def run_agent(
     db: AsyncSession,
     *,
     question: str,
-    role: str = "viewer",
+    role: str = "staff",
     history: list[dict[str, Any]] | None = None,
     session_id: str | None = None,
     entities: dict[str, Any] | None = None,
     actor: str | None = None,
+    payroll_access: bool = False,
+    payroll_confirmed: bool = False,
 ) -> dict[str, Any]:
     app = build_agent_graph()
     session_id = session_id or str(uuid.uuid4())
@@ -226,6 +228,8 @@ async def run_agent(
     initial: AgentState = {
         "question": question.strip(),
         "role": role,
+        "payroll_access": payroll_access,
+        "payroll_confirmed": payroll_confirmed,
         "history": history or [],
         "entities": dict(entities or {}),
         "plan": [],

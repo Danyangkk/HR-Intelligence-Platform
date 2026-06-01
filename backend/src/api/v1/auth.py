@@ -27,10 +27,15 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     role: str
     display_name: str | None = None
+    employee_id: str | None = None
+    payroll_access: bool = False
+    must_change_password: bool = False
 
 
 @router.post("/login")
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> dict:
+    from src.services.rbac import normalize_role
+
     result = await db.execute(select(User).where(User.username == body.username, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
     if not user or not pwd_context.verify(body.password, user.password_hash):
@@ -38,16 +43,27 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> dict:
 
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    role = normalize_role(user.role)
+    # 新规格：业务超管的薪资权是角色自带
+    effective_payroll_access = (role == "biz_super_admin")
     token = jwt.encode(
-        {"sub": user.username, "role": user.role, "exp": expire},
+        {
+            "sub": user.username,
+            "role": role,
+            "payroll_access": effective_payroll_access,
+            "exp": expire,
+        },
         settings.secret_key,
         algorithm="HS256",
     )
-    await write_audit(db, actor=user.username, action="auth.login", detail={"role": user.role})
+    await write_audit(db, actor=user.username, action="auth.login", detail={"role": role})
     return ok(
         LoginResponse(
             access_token=token,
-            role=user.role,
+            role=role,
             display_name=user.display_name,
+            employee_id=user.employee_id,
+            payroll_access=effective_payroll_access,
+            must_change_password=bool(user.must_change_password),
         ).model_dump()
     )

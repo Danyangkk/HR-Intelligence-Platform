@@ -1,150 +1,138 @@
-# 路由总纲 ROUTER
+# 路由总纲 ROUTER.md（每次 query 先读）
 
-> 意图→流程→skill 的**唯一事实源**。Planner 运行时全文注入；改路由只改本文件，不动 Planner 代码与 system_prompt。
+> 本文是超级智能体的**业务路由入口**。每个用户 query 进来，系统先读它，据此统筹：这个问题走哪些阶段、每阶段调哪些 skill、由哪个 agent 执行、在哪里提前结束或回炉。它是 18 个 SKILL.md 之上的"调度总纲"。配套《系统提示词与组件规范》（各 agent/skill 的实际提示词）《整体设计拉齐》。
+>
+> 与提示词的分工：本文是**路由依据**（query→流程→skill 的映射）；Planner 读本文做规划决策，但具体话术在各 agent 的 system_prompt。新增业务场景时，先改本文的映射主表，再加对应流程型 skill。
 
 ---
 
-## §1 Query 端到端生命周期
+## 1. 定位与原则
+
+- **每次 query 必读**：作为路由的统一入口，避免规则散落在各处。
+- **意图是总开关**：不是所有 query 都走完整流程；**意图决定激活哪些阶段、加载哪些 skill**（见 §3 主表）。
+- **两级决策**：本文 + Planner 决定 `意图→阶段→agent`；各 agent 在阶段内自行决定 `加载哪些 skill→调哪些 tool`。
+- **可扩充**：新增 HR 场景 = 主表加一行 + 加一个流程型 skill，主链路与 agent 不变。
+
+---
+
+## 2. 端到端生命周期（8 阶段 · 3 出口 · 1 回路）
 
 ```
-接收 → 规划(Planner) → 解析(Resolver) → 取证(Retriever) → 分析(Analyst) → 质检(Critic) → 汇总(Composer) → 输出
+① 接收与归一
+   收 query + 调用者 role + 会话历史(多轮记忆最近3-5轮 entities+intent)
+        │
+        ▼
+② 规划阶段  [Planner]
+   多轮继承 → 闲聊短路 ──────────────▶ 直接返回话术        [出口1·chitchat]
+            → 薪资明细校验 ───────────▶ 直接拒答            [出口2·reject]
+            → 语义意图判定(主体+诉求+数据来源) → 拆 subtask DAG + 指派 agent
+        │
+        ▼
+③ 实体解析阶段  [Resolver]（仅当含人名/模糊时间/模糊指标）
+   人名/时间/指标 → 系统口径
+   关键实体缺失或重名 ───────────────▶ 反问澄清            [出口3·clarify]
+        │
+        ▼
+④ 取证阶段  [Retriever，可并行多实例]
+   结构化路径 query_structured ｜ 文档路径 search_documents(RAG)
+   全程过 脱敏 Guardrail(pii_check)
+        │
+        ▼
+⑤ 分析阶段  [Analyst]（仅分析类意图）
+   趋势 / 对比 / 归因 / 异常
+        │
+        ▼
+⑥ 质检阶段  [Critic]（仅分析类意图）
+   充分 → 继续 ｜ 不足 ──回②replan(限2次，超限放行声明局限)── [回路]
+        │
+        ▼
+⑦ 汇总阶段  [Composer]
+   结论+论证 → 按规则决定图表 → 标溯源 → 薪资字段二次过滤
+        │
+        ▼
+⑧ 输出
+   SSE 流式执行轨迹 + 图文答案 + 溯源(数据:模块+定位键 / 文档:段落)
 ```
 
-| 阶段 | Agent | 职责 |
-|------|-------|------|
-| 接收 | API | 接收用户 question、history |
-| 规划 | Planner | 意图判定、subtask DAG、指派 agent；**不取数不回答** |
-| 解析 | Resolver | 人名/组织/时间/模糊指标 → 系统口径 |
-| 取证 | Retriever | 结构化取数 或 文档 RAG |
-| 分析 | Analyst | 趋势/对比/归因/预测 |
-| 质检 | Critic | 证据充分性；不足则触发 replan |
-| 汇总 | Composer | 组织最终答案、配图、溯源、薪资过滤 |
-| 输出 | API | SSE/JSON 返回用户 |
-
-### 提前出口（不经完整编排）
-
-| 出口 | 触发 | 行为 |
-|------|------|------|
-| **chitchat** | 无实质 HR 诉求的寒暄 | Planner 短路 `reply`，plan=[]，不派 agent、不 RAG |
-| **reject** | 个人薪资明细等安全红线 | Planner 输出 reject=true + reason，plan=[] |
-| **clarify** | Resolver 关键实体解析失败/重名 | 暂停编排，向用户澄清 |
-
-### replan 回路
-
-Critic 判定证据不足且 `replan_count < 2` → 回到 Planner，携带 `critic_feedback` 补充/修正 subtask，**保留已完成步骤**。
+**阶段是否激活由意图决定**——简单问题只走部分阶段，复杂归因走全程。具体见 §3。
 
 ---
 
-## §2 红线（与 global_preamble 一致，Planner 必须遵守）
+## 3. 意图 → 激活阶段 → skills 映射主表（本文核心）
 
-1. **policy 白名单**：仅「纯制度/流程询问且不查数据」可判 policy。数据类与闲聊**绝不**兜底 policy。
-2. **组织 + 数量/比率诉求**：强制 **aggregate**（结构化），禁止 policy / lookup / RAG。
-3. **查数表绝不是 policy**：需结构化表行/统计的，走 structured，不走 RAG。
-4. **闲聊最先判**：问候/感谢/告别/问能力/其他非 HR 闲聊 → chitchat 短路，固定话术，不走编排不 RAG。
-5. **个人薪资明细双层拦截**：Planner 拆解时 reject；Composer 生成时过滤。部门/事业部级聚合金额**放行**。
-6. **检索 0 命中**：明确说「未找到相关数据/规定」，**绝不编造、润色编造**。
-7. **未匹配**：无法归入 chitchat 或任一业务 intent，或 confidence < 0.45 → `intent=""`, plan=[]，**禁止** policy/aggregate 兜底。
+> 列含义：●=激活该阶段，—=跳过。skill 用编号（G=通用型，P=流程型，见 §5 对照）。Planner 据此拆 subtask 并指派 agent。
 
----
+| 意图 | 判定原则（语义） | ②规划 | ③解析 | ④取证 | ⑤分析 | ⑥质检 | ⑦汇总 | 加载的 skill（按阶段） |
+|---|---|:--:|:--:|:--:|:--:|:--:|:--:|---|
+| **chitchat** 闲聊 | 纯寒暄/感谢/告别/自我介绍，无实质诉求 | ● | — | — | — | — | — | 无（出口1 直接返回话术） |
+| **policy** 制度问答 | 问制度/流程，且不在查具体数据 | ● | — | ● | — | — | ● | P6；G3·G10 |
+| **lookup** 个人查询 | 主体=个人，要某条记录/数值 | ● | ● | ● | — | — | ● | G1；G2·G9；G10 |
+| **list** 清单查询 | 按条件列人员名单 | ● | ● | ● | — | — | ● | G1；G2·G9；G10 |
+| **aggregate** 聚合统计 | 主体=组织，要统计数值/汇总（人数/比率/规模…任意表达） | ● | ●* | ● | — | — | ● | G1*；G2·G7·G9；G8·G10 |
+| **trend** 趋势分析 | 主体=组织，要随时间变化 | ● | ● | ● | ● | ● | ● | G1；G2·G9；G6·G7；G11；G8·G10 |
+| **compare** 对比分析 | 多组织/维度横向比较 | ● | ● | ● | ● | ● | ● | G1；G2·G9；G5·G7；G11；G8·G10 |
+| **forecast** 预测分析 | 主体=组织，要未来估算/缺口 | ● | ● | ● | ● | — | ● | G1；G2·G9；P4·G7；G8·G10 |
+| **attribution** 归因诊断 | 问原因/偏高偏低/风险（个人或组织） | ● | ● | ●并行 | ● | ● | ● | G1·G7；G2·G3·G9；P1/P2/P3/P5·G4·G5·G6；G11；G8·G10 |
 
-## §3 意图判定（语义，不靠关键词枚举）
-
-判定三维：
-
-| 维度 | 取值 |
-|------|------|
-| **主体** | 组织(事业部/部门/全公司) / 个人(人名) / 制度文档 / 不明确 |
-| **诉求** | 统计数值·比率·汇总 / 具体记录 / 制度规定·流程 / 随时间变化 / 原因(为什么) / 未来估算 / 横向比较 / 列名单 |
-| **数据来源** | 结构化表 vs 文档(RAG) |
-
-**语义映射原则**（示例，非关键词表）：
-
-- 组织 + 统计数值/比率/汇总 → **aggregate**
-- 组织 + 随时间变化 → **trend**
-- 组织或个人 + 原因/偏高/偏低/风险 → **attribution**
-- 组织 + 未来估算/缺口 → **forecast**
-- 多组织/维度横向比较 → **compare**
-- 个人 + 具体记录 → **lookup**
-- 按条件列人员名单 → **list**
-- 制度/流程说明且无数据诉求 → **policy**（须满足白名单）
-- 无实质 HR 诉求寒暄 → **chitchat**
-
-**强制纠偏**：组织名 + 多少人/规模/比率/离职率等 → 必 aggregate；人名 + 查数据 → lookup（薪资明细除外 → reject）。
-
-### chitchat 话术（短路 reply）
-
-| 子类 | 场景 | reply |
-|------|------|-------|
-| 问候/感谢 | 你好/在吗/谢谢 | 你好呀～我是 HR 的超级助手，今天有什么事情可以帮你呢？ |
-| 告别 | 再见/拜拜 | 如果之后有任何需要都可以再次询问小助手哦～ |
-| 问能力 | 你是谁/你能干嘛 | 你好呀～我是 HR 的超级助手，今天有什么事情可以帮你呢？我可以帮你查数据（考勤/薪酬/编制等）、解读制度政策、做统计对比与趋势分析，也能做离职、绩效等原因诊断。 |
-| 其他闲聊 | 天气/笑话等与 HR 无关 | 我是专注 HR 领域的小助手～人力数据、制度政策、统计分析我都能帮上忙，有相关问题随时问我哦。 |
-
-边界：「公司有问候礼仪规定吗」→ policy；「杭综多少人」→ aggregate。
+注：
+- `aggregate` 的 ③解析带星：仅当需把"杭综"等组织名归一为事业部枚举时激活，简单聚合可在取证内完成。
+- `attribution` 的具体流程型 skill 按子场景选：离职→P1、个人绩效→P2、成本→P3、离职风险→P5；它们都调用 G4 归因方法论 + G5/G6 基准与趋势。
+- 凡 ⑦汇总 含 G8 数据可视化的，是否真出图仍按出图规则（趋势≥3点/构成占比/对比≥2组/排名）判定，单值不画。
+- 凡涉及指标计算的意图都带 G7 指标口径字典，口径随结论输出。
 
 ---
 
-## §4 意图 → 激活阶段 → skill 主表
+## 4. 三个提前出口 + 一个回路（路由护栏）
 
-`retrieve_mode`：policy 用 **rag**；其余业务 intent 用 **structured**（aggregate 绝不 RAG）。
+**出口1 · chitchat（闲聊短路）**：在②最先判。问候/寒暄/感谢/告别→「你好呀～我是 HR 的超级助手，今天有什么事情可以帮你呢？」；自我介绍类(你是谁/你能干嘛)→该句 +「我可以帮你查数据、解读制度、做统计对比趋势，也能做离职、绩效等原因诊断。」**不走③④⑤⑥⑦、不派 agent、不 RAG。** 边界靠语义：「公司有问候礼仪规定吗」是问制度→policy，不是 chitchat。
 
-| intent | 判定要点 | 激活阶段 (subtask types) | 流程型 skill（Analyst/Retriever 加载） | 常用 target_l3 |
-|--------|----------|---------------------------|----------------------------------------|----------------|
-| **chitchat** | 寒暄短路 | （无，plan=[]） | — | — |
-| **policy** | 纯制度/流程，无数据诉求 | retrieve(rag) → compose | process-leave-policy（制度解读） | l3-1-1-1 员工手册 |
-| **lookup** | 个人具体记录 | resolve → retrieve(structured) → compose | — | 花名册 l3-2-1-4；请假 l3-2-2-1；加班 l3-2-2-4；绩效 l3-5-1-1 |
-| **list** | 条件列名单 | resolve → retrieve(structured) → compose | — | l3-2-1-4 花名册 |
-| **aggregate** | 组织级统计/比率/人数 | resolve → retrieve(structured) → compose | — | l3-2-5-1 人事报表；l3-2-1-4；l3-6-1-1 编制 |
-| **trend** | 指标随时间变化 | resolve → retrieve → analyze → critique → compose | trend-analysis | l3-2-5-1 多期 |
-| **forecast** | 编制/缺口预测 | resolve → retrieve → analyze → compose | process-headcount-planning | l3-6-1-1 |
-| **compare** | 跨组织/维度比较 | resolve → retrieve → analyze → critique → compose | compare-benchmark, process-headcount-planning | l3-4-6-3, l3-6-1-1 |
-| **attribution** | 为什么/偏高/风险 | resolve → retrieve(多表) → analyze → critique → compose | process-resignation-attribution, process-performance-diagnosis, process-turnover-risk-alert, attribution-methodology | l3-2-5-1, l3-5-1-1, l3-2-2-4, l3-2-2-1, l3-2-3-1 等 |
+**出口2 · 薪资明细处理（按角色分流）**：在②做。涉及个人薪资明细（可定位到个人的薪酬数字）时，按角色与范围分流——
+- **普通员工 / 技术超管**：直接 reject 拒答，不产出 subtask（薪资隔离，技术超管永久无薪资权）。
+- **业务超管（已通过 30 分钟确认 TTL）**：放行，但按范围分三种——
+  - 已指定个人（"张三的薪资"）→ 归 **lookup**，正常放行查询。
+  - 已指定事业部（"杭抖部门薪资明细"）→ 归 **list**，放行返回该事业部全员。
+  - 全公司级/未指定范围（"全公司每个人的薪资明细"）→ 走 **clarify**，反问引导缩小到事业部（三按钮：杭综/杭抖/职能），选定后按 list 放行。
+- **业务超管未确认**：先触发二次确认（填事由）→ 确认后按上面放行；不是 reject。
+- 边界：拦"个人薪资明细给无权角色"，放"部门/事业部级聚合金额给任何角色"。**关键：薪资明细放行后必须归到 lookup/list/aggregate 正常意图，不得掉 unmatched 兜底。**（第二层防护在⑦：Composer 对无权角色混入的个人薪资字段二次过滤。）
 
-### 各阶段默认 skill（执行 Agent 加载）
+**判定方式（语义，不靠关键词枚举）：**
+- 是否为"个人薪资明细"用**语义判定**——问的是否是"可定位到个人的薪酬数字"（工资/奖金/个税/到手/收入/薪水等的同义/口语表达都覆盖），不是匹配某个固定词表。
+- "范围主体"用**语义判定**——主体是某个人 / 某个事业部 / 全公司或未限定，不是看有没有"部门"两字。
+- **特别区分**：
+  - "杭抖每个人的工资" → 范围=部门，是个人薪资明细的集合（list），仍敏感、需权限+确认。
+  - "杭抖人力成本汇总" → 是聚合数（aggregate），不涉个人明细，可放行。
+  - 两者的区别是要"一串个人记录"还是"一个汇总数"，靠语义不靠"部门"这词。
+- **关键词只做"安全网兜底"**：仅在 LLM 语义判定未标记敏感时，用最基础的薪酬词（工资/薪资/薪酬/奖金/到手/收入/工资条等）做粗粒度兜底检查；兜底方向只能"更严"（命中即按可能涉密走确认/拦截），绝不能反过来用关键词放行。
 
-| subtask type | Agent | 通用 skill |
-|--------------|-------|------------|
-| resolve | Resolver | entity-resolution, metric-dictionary |
-| retrieve(structured) | Retriever | structured-retrieval, pii-permission, metric-dictionary |
-| retrieve(rag) | Retriever | document-rag, pii-permission |
-| analyze | Analyst | 上表流程型 skill + compare-benchmark / trend-analysis / attribution-methodology |
-| critique | Critic | evidence-validation |
-| compose | Composer | answer-composition, data-visualization |
+**出口3 · clarify（澄清）**：在③做。关键实体（具体是谁/什么范围）解析不出或人名重名→反问，不猜，暂停本轮等用户补充。
 
-### 拆解规则
-
-- type → agent：resolve→Resolver, retrieve→Retriever, analyze→Analyst, critique→Critic, compose→Composer
-- 含人名/模糊时间/模糊指标 → **首步 resolve**
-- attribution / trend / compare → 须 retrieve 后 analyze + critique
-- 多跳取数放在**同一 retrieve** subtask 内
-- **末步必 compose**
-- 「为什么类」须 resolve→retrieve→analyze→compose，不可单点草率回答
+**回路 · replan**：在⑥做。Critic 判证据不足→带缺口回②由 Planner 补 subtask，限 2 次；超限则放行并要求⑦声明局限。
 
 ---
 
-## §5 Planner 输出 JSON
+## 5. 全局红线（同 global_preamble，所有路径强制）
 
-```json
-{
-  "intent": "chitchat|policy|lookup|list|aggregate|trend|forecast|compare|attribution",
-  "confidence": 0.0,
-  "reasoning": "一句话语义判定",
-  "reject": false,
-  "reason": "",
-  "reply": "",
-  "plan": [
-    {
-      "id": "ST1",
-      "type": "resolve|retrieve|analyze|critique|compose",
-      "goal": "",
-      "target_l3": ["l3-xxx"],
-      "assigned_agent": "Resolver|Retriever|Analyst|Critic|Composer",
-      "retrieve_mode": "rag|structured"
-    }
-  ]
-}
-```
+- 数据来源唯一=数据中台；不臆造，检索/命中为空就说"未找到"，绝不编造或以"润色"为名造内容。
+- 意图识别用语义判定（主体+诉求+数据来源），**禁止枚举关键词**。
+- policy 白名单：仅"纯制度/流程询问且无数据诉求"可判 policy；数据类与闲聊**绝不兜底 policy**。组织主体+数量/比率诉求→强制 aggregate。
+- 薪资双层拦截；事业部只能落三枚举（杭综/杭抖/职能）。
+- 指标统一走 G7 口径字典并输出口径。
+- 结构化走精确查询、文档走 RAG，不混用。
 
-- chitchat：`reply` 必填，`plan=[]`
-- reject：`reject=true`，`reason` 必填，`plan=[]`
-- 未匹配：`intent=""`, `confidence` 低, `plan=[]`
+---
+
+## 6. skill 对照（编号 → 名称）
+
+通用型：G1 实体解析 · G2 结构化取数 · G3 文档检索与解读(RAG) · G4 归因分析方法论 · G5 对比与基准 · G6 趋势分析 · G7 指标口径字典 · G8 数据可视化 · G9 脱敏与权限 · G10 答案组织与引用 · G11 证据校验。
+流程型：P1 离职归因 · P2 个人绩效诊断 · P3 人力成本拆解 · P4 编制健康度盘点 · P5 离职风险预警 · P6 制度合规解读 · P7 考勤异常核查。
+
+---
+
+## 7. 扩展指引（新增业务场景）
+
+1. 在 §3 主表加一行：定义新意图的判定原则、激活哪些阶段、加载哪些 skill。
+2. 若是新的分析套路，新增一个**流程型 skill**（写 SKILL.md，声明因子/模块/基准，复用 G4/G5/G6/G7 等通用型）。
+3. 不改 8 阶段主链路、不改 5 个 agent、不改既有 skill。
+4. 如涉及新数据模块，确认数据中台已有对应表与模版。
+
+> 一句话：query 进来 → 读本文 → 按意图查 §3 主表确定流程与 skill → Planner 据此拆解执行。新增场景只动主表 + 加一个流程型 skill。

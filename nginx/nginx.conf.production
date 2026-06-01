@@ -1,0 +1,70 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 50m;
+
+    # Gzip压缩（生产环境性能优化）
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
+    gzip_min_length 1000;
+    gzip_comp_level 6;
+
+    location /api/ {
+        proxy_pass http://api:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    location /docs {
+        proxy_pass http://api:8000/docs;
+        proxy_set_header Host $host;
+    }
+
+    location /openapi.json {
+        proxy_pass http://api:8000/openapi.json;
+    }
+
+    location /health {
+        proxy_pass http://api:8000/health;
+    }
+
+    # 【生产环境推荐】HTML文件：短缓存但需验证（1小时）
+    # 每次都检查文件是否更新（ETag/Last-Modified）
+    location ~* \.html$ {
+        add_header Cache-Control "public, max-age=3600, must-revalidate";
+        etag on;
+        try_files $uri /index.html;
+    }
+    
+    # 【生产环境推荐】JS/CSS文件：带版本号hash的文件可长期缓存
+    # 例如：app.abc123.js（webpack/vite自动生成）
+    # 如果文件名有hash，改为 max-age=31536000（1年）
+    location ~* \.(js|css)$ {
+        # 如果使用了文件名hash（推荐），改为：
+        # add_header Cache-Control "public, max-age=31536000, immutable";
+        
+        # 如果没用hash（当前项目），设置短缓存：
+        add_header Cache-Control "public, max-age=3600";
+        etag on;
+    }
+    
+    # 静态资源：长期缓存（1年）
+    location ~* \.(jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|webp|avif)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        etag on;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -23,6 +23,10 @@ def _merge_list(left: list[Any] | None, right: list[Any] | None) -> list[Any]:
 class AgentState(TypedDict, total=False):
     question: str
     role: str
+    # 薪资权限相关：必须在 TypedDict 中声明，否则 langgraph 用 schema 过滤 initial
+    # 时会丢弃这两个键，导致 planner 永远读不到 confirmed=True，陷入无限确认循环
+    payroll_access: bool
+    payroll_confirmed: bool
     intent: Intent | str
     entities: Annotated[dict[str, Any], _merge_dict]
     plan: list[dict[str, Any]]
