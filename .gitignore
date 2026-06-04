@@ -1,19 +1,42 @@
+# ===== 敏感配置 =====
 .env
 .env.local
+.env.*.local
 backend/.env
 backend/.env.docker
+# 保留示例文件
 !.env.example
+!backend/.env.example
+!backend/.env.docker.example
+
+# ===== Python =====
 __pycache__/
 *.py[cod]
+*.pyo
 .venv/
 venv/
 .pytest_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 *.egg-info/
 dist/
 build/
-.DS_Store
+
+# ===== Node =====
 node_modules/
+
+# ===== Data / Logs =====
 data/pg/
 data/minio/
-backend/logs/*.log
+backend/logs/
+*.log
+
+# ===== IDE =====
+.vscode/
+.idea/
+.cursor/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
