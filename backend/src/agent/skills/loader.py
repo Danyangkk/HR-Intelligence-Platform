@@ -10,7 +10,7 @@ from typing import Any
 _SKILLS_ROOT = Path(__file__).resolve().parent
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# 通用型 G1–G11 + 流程型 P1–P7（设计文档 §六）
+# 通用型 G1–G11 + 流程型 P1–P8 + intent-planning（Planner trace 用）
 SKILL_IDS = (
     "entity-resolution",  # G1
     "structured-retrieval",  # G2
@@ -30,8 +30,8 @@ SKILL_IDS = (
     "process-compensation-review",  # P5
     "process-headcount-planning",  # P6
     "process-attendance-anomaly",  # P7
-    "process-turnover-risk-alert",  # P5
-    "intent-planning",  # Planner
+    "process-turnover-risk-alert",  # P8
+    "intent-planning",  # Planner trace label
 )
 
 SKILL_DISPLAY: dict[str, str] = {

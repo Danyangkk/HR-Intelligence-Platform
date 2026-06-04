@@ -40,7 +40,7 @@ The answer here is a **human-in-the-loop improvement harness** — real usage pr
 **2. Multi-agent System (LangGraph)**
 - Planner (semantic routing, no keyword enumeration) + Supervisor (deterministic dispatch)
 - 5 reusable agents: Resolver, Retriever, Analyst, Composer, Critic
-- Extensible Skills (11 general + 7 flow) and 8 Tools
+- Extensible Skills (11 general + 8 flow) and 8 Tools
 - RAG over policy docs (Qwen embedding + hybrid retrieval + rerank); refuses to fabricate when 0-hit
 
 **3. Production-grade Governance Harness**

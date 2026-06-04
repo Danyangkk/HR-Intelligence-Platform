@@ -40,7 +40,7 @@ English version: [README.md](./README.md)
 **2. 多 Agent 系统（LangGraph）**
 - Planner（语义路由，禁关键词枚举） + Supervisor（确定性派发）
 - 5 个可复用 Agent：Resolver、Retriever、Analyst、Composer、Critic
-- 可扩展 Skills（11 通用 + 7 流程） + 8 个 Tool
+- 可扩展 Skills（11 通用 + 8 流程） + 8 个 Tool
 - 制度文档 RAG（Qwen embedding + 混合检索 + rerank），0命中拒绝臆造
 
 **3. 生产级治理 Harness**

@@ -30,7 +30,10 @@ node_modules/
 data/pg/
 data/minio/
 backend/logs/
+**/logs/*.log
 *.log
+*.log.zip
+celerybeat-schedule*
 
 # ===== IDE =====
 .vscode/
@@ -39,5 +42,8 @@ backend/logs/
 
 # ===== OS =====
 .DS_Store
-Thumbs.db.sdd/
+Thumbs.db
+
+# ===== Framework templates (not part of app) =====
+.sdd/
 SDD_V7_1/

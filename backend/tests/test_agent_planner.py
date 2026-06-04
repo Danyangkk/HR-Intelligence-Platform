@@ -5,10 +5,10 @@ import pytest
 from src.agent.planner import (
     build_orch_summary,
     build_plan,
-    check_salary_rejection,
     classify_intent,
     run_planner,
 )
+from src.agent.planner_rules import check_salary_rejection
 from src.agent.planner_llm import _validate_plan, plan_with_rules, resolve_plan
 
 
