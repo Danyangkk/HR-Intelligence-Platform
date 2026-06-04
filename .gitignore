@@ -39,4 +39,5 @@ backend/logs/
 
 # ===== OS =====
 .DS_Store
-Thumbs.db
+Thumbs.db.sdd/
+SDD_V7_1/
