@@ -11,23 +11,28 @@ from src.agent.planner_rules import (
     INTENT_CONFIDENCE_THRESHOLD,
     INTENT_MODE,
     INTENT_UNMATCHED_MESSAGE,
-    NAME_RE,
     build_plan,
     classify_chitchat,
     classify_intent,
     is_followup_with_hint,
     is_org_metric_question,
     is_org_structured_question,
-    is_personal_lookup_question,
     is_policy_question,
-    is_procedure_question,
 )
-from src.agent.catalog import catalog_prompt_block
+from src.agent.catalog import catalog_prompt_block, is_document_l3, is_structured_l3, valid_l3_ids
 from src.agent.prompts import PLANNER_FEW_SHOT, PLANNER_SYSTEM, with_global_preamble
 from src.agent.router_loader import inject_router
 from src.services.llm.dashscope import chat_completion
 
 _VALID_INTENTS = frozenset({"chitchat", "policy", "lookup", "list", "aggregate", "trend", "forecast", "compare", "attribution"})
+_VALID_SUBTASK_TYPES = frozenset({"resolve", "retrieve", "analyze", "critique", "compose"})
+_TYPE_AGENT = {
+    "resolve": "Resolver",
+    "retrieve": "Retriever",
+    "analyze": "Analyst",
+    "critique": "Critic",
+    "compose": "Composer",
+}
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
@@ -92,14 +97,13 @@ def _normalize_plan_item(item: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
     stype = item.get("type")
-    agent = item.get("assigned_agent")
-    if not stype or not agent:
+    if stype not in _VALID_SUBTASK_TYPES:
         return None
     out: dict[str, Any] = {
         "id": str(item.get("id") or "t1"),
         "type": stype,
         "goal": str(item.get("goal") or ""),
-        "assigned_agent": agent,
+        "assigned_agent": _TYPE_AGENT[stype],
     }
     if stype == "retrieve":
         mode = item.get("retrieve_mode") or "structured"
@@ -118,45 +122,53 @@ def _normalize_plan_item(item: dict[str, Any]) -> dict[str, Any] | None:
     return out
 
 
-def _validate_plan(intent: str, plan: list[dict[str, Any]], question: str) -> bool:
-    if intent not in _VALID_INTENTS or not plan:
+def validate_plan_invariants(plan: list[dict[str, Any]]) -> bool:
+    """Check plan DAG invariants (I1–I7). Intent-agnostic."""
+    if not plan or len(plan) > 10:
         return False
+
     types = [p.get("type") for p in plan]
-    if intent == "policy":
-        if types != ["retrieve", "compose"]:
-            return False
-        retrieve = plan[0]
-        if retrieve.get("retrieve_mode") != "rag":
-            return False
-        if "l3-1-1-1" not in (retrieve.get("target_l3") or []):
-            return False
-    if intent == "lookup":
-        if not is_personal_lookup_question(question):
-            return False
-        if types[:2] != ["resolve", "retrieve"] or "compose" not in types:
-            return False
-        if plan[1].get("retrieve_mode") != "structured":
-            return False
-    if intent == "list":
-        if types[:2] != ["resolve", "retrieve"] or types[-1] != "compose":
-            return False
-    if intent == "aggregate":
-        if types[:2] != ["resolve", "retrieve"] or types[-1] != "compose":
-            return False
-    if intent == "trend":
-        required = {"resolve", "retrieve", "analyze", "critique", "compose"}
-        if not required.issubset(set(types)):
-            return False
-    if intent == "forecast":
-        if not {"resolve", "retrieve", "analyze", "compose"}.issubset(set(types)):
-            return False
-    if intent in {"compare", "attribution"}:
-        required = {"resolve", "retrieve", "analyze", "critique", "compose"}
-        if not required.issubset(set(types)):
-            return False
-    if intent == "policy" and NAME_RE.search(question) and not is_procedure_question(question):
+    if any(t not in _VALID_SUBTASK_TYPES for t in types):
         return False
+
+    compose_idxs = [i for i, t in enumerate(types) if t == "compose"]
+    if len(compose_idxs) != 1 or compose_idxs[0] != len(types) - 1:
+        return False
+
+    if "analyze" in types:
+        analyze_idx = types.index("analyze")
+        if "retrieve" not in types[:analyze_idx]:
+            return False
+        if "critique" not in types:
+            return False
+        critique_idx = types.index("critique")
+        if not (analyze_idx < critique_idx < compose_idxs[0]):
+            return False
+
+    catalog_ids = valid_l3_ids()
+    for item in plan:
+        if item.get("type") != "retrieve":
+            continue
+        targets = item.get("target_l3") or []
+        if not targets or any(tid not in catalog_ids for tid in targets):
+            return False
+        mode = item.get("retrieve_mode") or "structured"
+        if mode == "rag":
+            if not all(is_document_l3(tid) for tid in targets):
+                return False
+        elif mode == "structured":
+            if not all(is_structured_l3(tid) for tid in targets):
+                return False
+        else:
+            return False
+
     return True
+
+
+def _validate_plan(intent: str, plan: list[dict[str, Any]], question: str) -> bool:
+    if intent not in _VALID_INTENTS:
+        return False
+    return validate_plan_invariants(plan)
 
 
 def _chitchat_result(*, reply: str, source: str, reasoning: str = "寒暄/自我介绍，短路回复") -> dict[str, Any]:

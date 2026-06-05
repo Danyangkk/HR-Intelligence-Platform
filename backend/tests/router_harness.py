@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from src.agent.planner import run_planner
+from src.agent.planner_llm import validate_plan_invariants
 
 CASES_PATH = Path(__file__).resolve().parent / "router_cases.yaml"
 RECORDINGS_DIR = Path(__file__).resolve().parent / "fixtures" / "llm_recordings"
@@ -99,6 +100,9 @@ def assert_router_expectations(result: dict[str, Any], expect: dict[str, Any], *
 
     if expect.get("no_subtasks"):
         assert not plan, f"{case_id}: expected no subtasks"
+
+    if plan and expect.get("plan_invariants", True):
+        assert validate_plan_invariants(plan), f"{case_id}: plan failed invariants"
 
     must_types = expect.get("must_have_subtask_types") or []
     for stype in must_types:

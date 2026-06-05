@@ -119,7 +119,7 @@
   history: []
   expect:
     intent: trend
-    must_have_subtask_types: [retrieve, analyze, compose]
+    must_have_subtask_types: [retrieve, analyze, critique, compose]
 
 # ---- forecast 预测 ----
 - id: forecast-headcount
@@ -128,7 +128,7 @@
   history: []
   expect:
     intent: forecast
-    must_have_subtask_types: [retrieve, analyze]
+    must_have_subtask_types: [retrieve, analyze, critique]
 
 # ---- compare 对比 ----
 - id: compare-cost
@@ -137,7 +137,7 @@
   history: []
   expect:
     intent: compare
-    must_have_subtask_types: [retrieve, analyze]
+    must_have_subtask_types: [retrieve, analyze, critique]
 
 - id: compare-two
   desc: 两部门对比走 compare
@@ -153,7 +153,7 @@
   history: []
   expect:
     intent: attribution
-    must_have_subtask_types: [resolve, retrieve, analyze, compose]
+    must_have_subtask_types: [resolve, retrieve, analyze, critique, compose]
 
 - id: attr-perf
   desc: 个人绩效归因
@@ -161,7 +161,7 @@
   history: []
   expect:
     intent: attribution
-    must_have_subtask_types: [resolve, retrieve, analyze, compose]
+    must_have_subtask_types: [resolve, retrieve, analyze, critique, compose]
 
 - id: attr-risk
   desc: 离职风险名单走 attribution

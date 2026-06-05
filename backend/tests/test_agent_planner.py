@@ -9,7 +9,7 @@ from src.agent.planner import (
     run_planner,
 )
 from src.agent.planner_rules import check_salary_rejection
-from src.agent.planner_llm import _validate_plan, plan_with_rules, resolve_plan
+from src.agent.planner_llm import _validate_plan, plan_with_rules, resolve_plan, validate_plan_invariants
 
 
 def test_classify_resignation_procedure_is_policy():
@@ -80,9 +80,11 @@ def test_planner_reject_state():
     assert state.get("final")
 
 
-def test_validate_plan_rejects_personal_policy():
-    plan = build_plan("policy", "李四最近表现怎么样")
-    assert _validate_plan("policy", plan, "李四最近表现怎么样") is False
+def test_validate_plan_rejects_phantom_l3():
+    plan = build_plan("lookup", "张三这个月请了几天假")
+    plan[1]["target_l3"] = ["l3-9-9-9"]
+    assert validate_plan_invariants(plan) is False
+    assert _validate_plan("lookup", plan, "张三这个月请了几天假") is False
 
 
 def test_resolve_plan_falls_back_to_rules(monkeypatch):

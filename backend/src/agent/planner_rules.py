@@ -575,6 +575,7 @@ def build_plan(intent: Intent, question: str, *, entities: dict[str, Any] | None
                 "target_l3": ["l3-6-1-1"], "assigned_agent": "Retriever", "retrieve_mode": "structured",
             },
             {"id": "t3", "type": "analyze", "goal": "估算编制缺口（风险提示非确定）", "assigned_agent": "Analyst"},
-            {"id": "t4", "type": "compose", "goal": "输出预测结论与说明", "assigned_agent": "Composer"},
+            {"id": "t4", "type": "critique", "goal": "校验预测证据", "assigned_agent": "Critic"},
+            {"id": "t5", "type": "compose", "goal": "输出预测结论与说明", "assigned_agent": "Composer"},
         ]
     return [{"id": "t1", "type": "compose", "goal": f"暂未实现 {intent}", "assigned_agent": "Composer"}]
