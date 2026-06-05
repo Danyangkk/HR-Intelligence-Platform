@@ -44,10 +44,17 @@ from src.services.review_suggestions import (
     reject_review_suggestion,
 )
 from src.services.eval_service import (
+    attach_run_metrics_from_cases,
     count_eval_runs,
+    delete_garbage_eval_runs,
+    get_eval_coverage,
     get_eval_run_detail,
+    get_run_diff,
     list_eval_runs,
+    list_run_cases,
+    submit_judge_feedback,
 )
+from src.eval.demo_seed import seed_eval_demo
 from src.services.payroll_access import (
     create_confirm_token,
     grant_payroll_access,
@@ -677,6 +684,7 @@ async def eval_run_detail(
     data = await get_eval_run_detail(db, run_id, include_cases=include_cases)
     if not data:
         return fail(404, "eval run not found")
+    await attach_run_metrics_from_cases(db, run_id, data)
     return ok(data)
 
 
@@ -685,7 +693,7 @@ async def eval_runs_trigger(
     background_tasks: BackgroundTasks,
     only_layer1: bool = Query(False, description="仅跑 Layer1（最快，不调全流程也不调 LLM-as-judge）"),
     case_limit: int | None = Query(None, ge=1, le=200, description="仅跑前 N 条，测试用"),
-    version: str = Query("dev", description="版本标签，例如 git rev / 改动描述"),
+    version: str | None = Query(None, description="版本标签，默认 MMDD-HHmm；可传自定义如 v1.4.0"),
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -701,11 +709,13 @@ async def eval_runs_trigger(
 
     from src.db.session import AsyncSessionLocal
     from src.eval.runner import create_eval_run, run_eval_batch
+    from src.eval.version import normalize_eval_version
     from src.models import EvalRun
 
+    ver = normalize_eval_version(version)
     run_id = await create_eval_run(
         db,
-        version=version,
+        version=ver,
         trigger="manual",
         triggered_by=user.username,
         case_limit=case_limit,
@@ -717,7 +727,7 @@ async def eval_runs_trigger(
                 await run_eval_batch(
                     bg_db,
                     run_id=rid,
-                    version=version,
+                    version=ver,
                     trigger="manual",
                     triggered_by=user.username,
                     only_layer1=only_layer1,
@@ -738,5 +748,104 @@ async def eval_runs_trigger(
         "message": "评测跑批已启动（后台运行）",
         "only_layer1": only_layer1,
         "case_limit": case_limit,
-        "version": version,
+        "version": ver,
     })
+
+
+@router.post("/eval/seed-demo")
+async def eval_seed_demo(
+    body: dict[str, Any] | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    payload = body or {}
+    force = bool(payload.get("force"))
+    run_ids = await seed_eval_demo(db, force=force)
+    return ok({"run_ids": run_ids, "count": len(run_ids), "refreshed": force})
+
+
+@router.post("/eval/runs/cleanup-garbage")
+async def eval_runs_cleanup_garbage(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    deleted = await delete_garbage_eval_runs(db)
+    return ok({"deleted": deleted})
+
+
+@router.get("/eval/runs/{run_id}/cases")
+async def eval_run_cases(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    payload = await list_run_cases(db, run_id)
+    if payload is None:
+        return fail(404, "eval run not found")
+    return ok(payload)
+
+
+@router.get("/eval/runs/{run_id}/diff")
+async def eval_run_diff(
+    run_id: int,
+    against: int | None = Query(None, description="基线 run_id，默认取上一 done run"),
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    data = await get_run_diff(db, run_id, against=against)
+    if not data:
+        return fail(404, "eval run not found")
+    return ok(data)
+
+
+@router.get("/eval/coverage")
+async def eval_coverage(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    return ok(get_eval_coverage())
+
+
+@router.post("/eval/feedback")
+async def eval_judge_feedback(
+    body: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    try:
+        row = await submit_judge_feedback(
+            db,
+            case_result_id=int(body.get("case_result_id") or 0),
+            verdict=str(body.get("verdict") or ""),
+            human_overall=body.get("human_overall"),
+            note=body.get("note"),
+            created_by=user.username or "unknown",
+        )
+    except LookupError:
+        return fail(404, "case result not found")
+    except ValueError as exc:
+        return fail(400, str(exc))
+    return ok(row)

@@ -25,17 +25,31 @@ def _parse_sse_events(raw: str) -> list[tuple[str, dict]]:
     return events
 
 
-async def _collect_stream(question: str, *, role: str = "viewer") -> list[tuple[str, dict]]:
+async def _collect_stream(
+    question: str,
+    *,
+    role: str = "viewer",
+    payroll_confirmed: bool = False,
+) -> list[tuple[str, dict]]:
     chunks: list[str] = []
     async with AsyncSessionLocal() as db:
-        async for chunk in run_agent_stream(db, question=question, role=role):
+        async for chunk in run_agent_stream(
+            db,
+            question=question,
+            role=role,
+            payroll_confirmed=payroll_confirmed,
+        ):
             chunks.append(chunk)
     return _parse_sse_events("".join(chunks))
 
 
 @pytest.mark.asyncio
 async def test_agent_stream_compare_emits_plan_and_answer():
-    events = await _collect_stream("对比各事业部人均成本谁高")
+    events = await _collect_stream(
+        "对比各事业部人均成本谁高",
+        role="biz_super_admin",
+        payroll_confirmed=True,
+    )
     names = [name for name, _ in events]
     assert "plan" in names
     assert "node_start" in names

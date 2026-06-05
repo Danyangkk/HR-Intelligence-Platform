@@ -9,7 +9,12 @@ from src.db.session import AsyncSessionLocal
 @pytest.mark.asyncio
 async def test_agent_compare_bu_cost():
     async with AsyncSessionLocal() as db:
-        result = await run_agent(db, question="对比各事业部人均成本谁高", role="viewer")
+        result = await run_agent(
+            db,
+            question="对比各事业部人均成本谁高",
+            role="biz_super_admin",
+            payroll_confirmed=True,
+        )
     assert result["intent"] == "compare"
     assert result["rejected"] is False
     assert "杭抖" in result["answer"] or "事业部" in result["answer"]

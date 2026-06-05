@@ -104,8 +104,8 @@ def test_skill_runner_executes_sop_steps():
 
 
 def test_all_agents_load_skills_from_skill_md():
+    # Planner deliberately has no SKILL.md bindings (trace label only: intent-planning).
     for agent, subtask in [
-        ("Planner", None),
         ("Resolver", "resolve"),
         ("Retriever", "retrieve"),
         ("Analyst", "analyze"),
@@ -115,6 +115,11 @@ def test_all_agents_load_skills_from_skill_md():
         ctx = begin_agent_run(agent, {"intent": "lookup"}, subtask_type=subtask)
         assert ctx.skills, f"{agent} should load skills"
         assert ctx.skills[0].get("content"), f"{agent} SKILL.md content missing"
+
+
+def test_planner_has_no_bound_skills_by_design():
+    ctx = begin_agent_run("Planner", {"intent": "lookup"})
+    assert ctx.skills == []
 
 
 def test_planner_trace_includes_sop():

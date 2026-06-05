@@ -289,3 +289,22 @@ class EvalCaseResult(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     run: Mapped[EvalRun] = relationship(back_populates="case_results")
+    judge_feedbacks: Mapped[list["EvalJudgeFeedback"]] = relationship(
+        back_populates="case_result", cascade="all, delete-orphan"
+    )
+
+
+class EvalJudgeFeedback(Base):
+    __tablename__ = "eval_judge_feedback"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    case_result_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("eval_case_result.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)  # agree | disagree
+    human_overall: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    case_result: Mapped[EvalCaseResult] = relationship(back_populates="judge_feedbacks")

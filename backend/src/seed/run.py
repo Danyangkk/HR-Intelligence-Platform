@@ -87,6 +87,10 @@ async def seed_all(force: bool = False) -> None:
                 print(f"seed: mock_records={mock_count} (categories already present)")
             else:
                 print("seed: already present, skip (use force=True to reseed)")
+            from src.eval.demo_seed import seed_eval_demo
+
+            demo_ids = await seed_eval_demo(session, force=True)
+            print(f"seed: eval demo runs={len(demo_ids)}")
             return
 
         if force:
@@ -172,6 +176,11 @@ async def seed_all(force: bool = False) -> None:
         mock_count = await seed_mock_records(session, force=force)
         if mock_count:
             await session.commit()
+
+        from src.eval.demo_seed import seed_eval_demo
+
+        demo_ids = await seed_eval_demo(session, force=True)
+        print(f"seed: eval demo runs={len(demo_ids)}")
 
         print(
             f"seed: done — l3=84 templates={len(templates)} "

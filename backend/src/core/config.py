@@ -7,14 +7,19 @@ from pycore.core import BaseSettings, ConfigLoader, ConfigManager
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ENV_CANDIDATES = (_BACKEND_DIR / ".env", _BACKEND_DIR.parent / ".env")
-_ENV_FILE = next((path for path in _ENV_CANDIDATES if path.exists()), _BACKEND_DIR / ".env")
+# Docker 容器内优先读 .env.docker，避免宿主机 pytest 写入的 localhost .env 通过 volume 污染 API
+_DOCKER_ENV = _BACKEND_DIR / ".env.docker"
+if Path("/.dockerenv").exists() and _DOCKER_ENV.exists():
+    _ENV_FILE = _DOCKER_ENV
+else:
+    _ENV_FILE = next((path for path in _ENV_CANDIDATES if path.exists()), _BACKEND_DIR / ".env")
 
 
 class DotEnvConfigLoader(ConfigLoader):
     """Load KEY=value pairs from a .env file (no process env inheritance)."""
 
     def supports(self, path: Path) -> bool:
-        return path.name.endswith(".env")
+        return path.name.startswith(".env")
 
     def load(self, path: Path) -> dict[str, Any]:
         if not path.exists():

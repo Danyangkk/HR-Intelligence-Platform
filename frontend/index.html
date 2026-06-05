@@ -942,11 +942,32 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 }
 
 /* 评测中心（沿用复盘卡片风格） */
-.ev-run-list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
-.ev-run-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;background:#fff}
+.admin-content.admin-eval-mode{overflow:hidden;display:flex;flex-direction:column;min-height:0;max-width:1280px}
+#admin-eval.active{flex:1;min-height:0;display:flex;flex-direction:column}
+.ev-eval-head{flex-shrink:0}
+.ev-eval-head .admin-h2{margin-bottom:8px}
+.ev-eval-head .muted{margin:0 0 12px}
+.ev-eval-actions{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.ev-workspace{flex:1;min-height:0;display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px}
+.ev-sidebar{display:flex;flex-direction:column;min-height:0;overflow:hidden;border:1px solid var(--bd);border-radius:10px;background:#fff}
+.ev-sidebar-title{margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.ev-run-list-scroll{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;-webkit-overflow-scrolling:touch}
+.ev-detail-scroll{min-height:0;overflow-y:auto;padding:12px 14px;-webkit-overflow-scrolling:touch}
+.ev-detail-scroll>.rv-empty{padding:24px 8px}
+.ev-run-list{display:flex;flex-direction:column;gap:8px;margin-bottom:0}
+.ev-run-item{padding:11px 12px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;background:#fff;transition:border-color .15s,background .15s}
 .ev-run-item:hover{border-color:var(--brand,#2b6cb0);background:#f7faff}
-.ev-run-item.active{border-color:var(--brand,#2b6cb0);background:#ebf4ff}
-.ev-run-meta{font-size:12px;color:var(--t3)}
+.ev-run-item.active{border-color:var(--brand,#2b6cb0);background:#ebf4ff;box-shadow:0 0 0 1px rgba(43,108,176,.08)}
+.ev-run-head{display:flex;align-items:center;gap:6px;min-width:0}
+.ev-run-id{font-size:13px;font-weight:600;color:var(--t1);flex-shrink:0}
+.ev-run-ver{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--t2)}
+.ev-run-status{flex-shrink:0;font-size:11px;font-weight:500;line-height:1.35;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.ev-run-status.done{background:#dcfce7;color:#166534}
+.ev-run-status.failed{background:#fee2e2;color:#991b1b}
+.ev-run-status.running{background:#fef3c7;color:#92400e}
+.ev-run-meta{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--t3);line-height:1.4}
+.ev-run-meta-planner{white-space:nowrap}
+.ev-run-time{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ev-intent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin:12px 0}
 .ev-intent-cell{background:#f7f8fa;border-radius:8px;padding:10px 12px;border:1px solid #eef0f3}
 .ev-intent-name{font-size:12px;color:var(--t3)}
@@ -956,6 +977,56 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 .ev-status-running{color:#d97706;font-weight:500}
 .ev-status-done{color:#16a34a;font-weight:500}
 .ev-status-failed{color:#dc2626;font-weight:500}
+.ev-metric-sub{font-size:10px;color:var(--t3);margin-top:4px;line-height:1.4}
+.ev-metric-warn{border-color:#fecaca;background:#fef2f2}
+.ev-gate{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;margin-left:8px}
+.ev-gate-pass{background:#dcfce7;color:#166534}
+.ev-gate-fail{background:#fee2e2;color:#991b1b}
+.ev-gate-na{background:#f3f4f6;color:#6b7280}
+.ev-gate-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.ev-gate-dot.pass{background:#22c55e}
+.ev-gate-dot.fail{background:#ef4444}
+.ev-gate-dot.na{background:#9ca3af}
+.ev-demo-tag{display:inline-block;font-size:10px;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;padding:1px 5px;margin-right:6px;vertical-align:middle}
+.ev-trigger-wrap{position:relative;display:inline-flex;align-items:stretch}
+.ev-trigger-wrap .ev-trigger-caret{margin-left:-1px;border-left:1px solid rgba(255,255,255,.25);padding-left:6px;padding-right:8px;border-radius:0 6px 6px 0}
+.ev-run-menu{position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid var(--border,#e5e7eb);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:30;min-width:240px;overflow:hidden}
+.ev-run-menu-item{display:block;width:100%;text-align:left;padding:10px 14px;border:0;background:0;cursor:pointer;font-size:13px;color:inherit}
+.ev-run-menu-item:hover{background:#f3f4f6}
+.ev-flaky-tag{font-size:11px;color:var(--t3);margin-left:8px}
+.ev-cal-banner{font-size:13px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px}
+.ev-case-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 0 10px;flex-wrap:wrap}
+.ev-case-filters{display:flex;gap:6px}
+.ev-case-filters .btn.active{background:var(--pri);color:#fff;border-color:var(--pri)}
+.ev-mark-ok{color:#16a34a;font-weight:600}
+.ev-mark-err{color:#dc2626;font-weight:600}
+.ev-mark-na{color:var(--t3)}
+.ev-score-warn{color:#d97706;font-weight:600}
+.ev-score-ok{color:#16a34a;font-weight:600}
+.ev-regressed-tag{display:inline-block;font-size:10px;color:#fff;background:#dc2626;border-radius:4px;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.ev-case-row{cursor:pointer}
+.ev-dual{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.ev-dual-col{border:1px solid var(--bd);border-radius:8px;padding:10px 12px;background:var(--bg2);min-height:48px}
+.ev-dual-col h4{font-size:12px;color:var(--t3);margin:0 0 8px;font-weight:500}
+.ev-layer-block{border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fff}
+.ev-layer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ev-layer-title{font-size:13px;font-weight:600;color:var(--t2)}
+.ev-mismatch{font-family:ui-monospace,monospace;font-size:12px;color:#dc2626;margin-top:8px;white-space:pre-wrap}
+.ev-judge-badges{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.ev-judge-badge{font-size:12px;padding:4px 8px;border-radius:6px;background:var(--bg2);border:1px solid var(--bd)}
+.ev-judge-badge.warn{background:#fffbeb;border-color:#fde68a;color:#92400e}
+.ev-judge-badge.err{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.ev-judge-badge.ok{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.ev-answer-box{max-height:240px;overflow-y:auto;font-size:13px;line-height:1.6;white-space:pre-wrap}
+.ev-feedback-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--bd)}
+.ev-feedback-bar input[type=number]{width:56px;padding:6px 8px;border:1px solid var(--bd);border-radius:6px}
+.ev-feedback-bar input[type=text]{flex:1;min-width:160px;padding:6px 10px;border:1px solid var(--bd);border-radius:6px}
+.ev-feedback-bar .btn.verdict-active{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 12%,transparent);color:var(--pri);font-weight:600}
+.ev-fb-score-hint{font-size:12px;white-space:nowrap}
+.ev-feedback-done{font-size:13px;color:var(--t2)}
+.ev-cov-zero{background:#fef2f2;color:#991b1b}
+.ev-cov-complete{color:#16a34a;font-weight:500}
+.ev-report-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 /* 未登录：隐藏业务区，仅展示登录弹窗 */
 .app.auth-locked .mode-nav,
@@ -1132,19 +1203,25 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
         </div>
       </div>
       <div class="admin-pane" id="admin-eval">
-        <h2 class="admin-h2">评测中心</h2>
-        <p class="muted">Eval 打分看趋势（不拦上线）；Test 门禁拦回归。跑批时现场重跑当前系统，不读历史 trace 打分。</p>
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-primary btn-sm" id="evalTriggerL1" onclick="triggerEvalRun(true)">快速评测（仅 Layer1）</button>
-          <button class="btn btn-sm" id="evalTriggerFull" onclick="triggerEvalRun(false)">完整评测（三层，较慢）</button>
-          <span class="muted" id="evalTriggerStatus"></span>
-        </div>
-        <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start">
-          <div>
-            <div class="rv-section-title" style="margin-bottom:8px">历史跑批</div>
-            <div class="ev-run-list" id="evalRunList"><div class="rv-empty">加载中…</div></div>
+        <div class="ev-eval-head">
+          <h2 class="admin-h2">评测中心</h2>
+          <p class="muted">确定性断言与新挂对比参与发版门禁；grader 打分仅看趋势、不拦上线。<br>跑批现场重跑当前系统，不读历史 trace。</p>
+          <div class="ev-eval-actions">
+            <div id="evalTriggerWrap" style="display:none;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn btn-primary btn-sm" id="evalTriggerFull" onclick="triggerEvalRun(false)">开始评测</button>
+              <button type="button" class="btn btn-sm" id="evalTriggerL1" onclick="triggerEvalRun(true)">快速检查 · 仅意图层 ≈30秒</button>
+            </div>
+            <span class="muted" id="evalTriggerStatus"></span>
           </div>
-          <div id="evalRunDetail"><div class="rv-empty">选择左侧跑批记录查看报告</div></div>
+        </div>
+        <div class="ev-workspace">
+          <aside class="ev-sidebar">
+            <div class="rv-section-title ev-sidebar-title">历史跑批</div>
+            <div class="ev-run-list-scroll">
+              <div class="ev-run-list" id="evalRunList"><div class="rv-empty">加载中…</div></div>
+            </div>
+          </aside>
+          <div class="ev-detail-scroll" id="evalRunDetail"><div class="rv-empty">选择左侧跑批记录查看报告</div></div>
         </div>
       </div>
     </main>
@@ -1346,6 +1423,44 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
   <div class="modal-footer">
     <button class="btn" onclick="closeModal('editUserModal')">取消</button>
     <button class="btn btn-primary" onclick="submitEditUser()">保存</button>
+  </div>
+</div></div>
+
+<div class="modal" id="evalCaseModal"><div class="modal-dialog" style="width:840px;max-width:calc(100% - 24px)">
+  <div class="modal-header">
+    <div class="modal-title" id="evalCaseModalTitle">Case 详情</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <a href="#" class="action-link" id="evalCaseTraceLink" target="_blank" rel="noopener">查看 trace</a>
+      <div class="modal-close" onclick="closeModal('evalCaseModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+    </div>
+  </div>
+  <div class="modal-body" id="evalCaseModalBody"></div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('evalCaseModal')">关闭</button></div>
+</div></div>
+
+<div class="modal" id="evalCoverageModal"><div class="modal-dialog" style="width:720px">
+  <div class="modal-header">
+    <div class="modal-title">评测集覆盖矩阵</div>
+    <div class="modal-close" onclick="closeModal('evalCoverageModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body" id="evalCoverageBody"><div class="rv-empty">加载中…</div></div>
+  <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('evalCoverageModal')">关闭</button></div>
+</div></div>
+
+<div class="modal" id="evalTriggerModal"><div class="modal-dialog dialog-sm">
+  <div class="modal-header">
+    <div class="modal-title" id="evalTriggerModalTitle">开始评测</div>
+    <div class="modal-close" onclick="closeModal('evalTriggerModal')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>
+  <div class="modal-body">
+    <div class="login-form">
+      <label>版本标签<input id="evalTriggerVersion" type="text" placeholder="留空则用默认时间标签" autocomplete="off"></label>
+      <div class="muted" style="font-size:12px;line-height:1.5" id="evalTriggerVersionHint"></div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn" onclick="closeModal('evalTriggerModal')">取消</button>
+    <button class="btn btn-primary" id="evalTriggerSubmitBtn" onclick="submitEvalTriggerModal()">开始</button>
   </div>
 </div></div>
 
@@ -3085,6 +3200,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderAdminNav && renderAdminNav();
 });
 </script>
-<script src="permission-admin.js?v=1779988200"></script>
+<script src="permission-admin.js?v=pr6-eval-split-scroll-20260605"></script>
 </body>
 </html>

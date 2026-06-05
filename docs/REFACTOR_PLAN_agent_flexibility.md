@@ -260,4 +260,18 @@ cd backend && PYTHONPATH=.. pytest tests -m "not online" -q
 2. 恢复改动：`git stash pop`，再跑第 4 步。
 3. 验收标准：新失败集合 ⊆ 基线失败集合（即**不得新增** offline 失败）；允许基线里已有的失败暂时仍存在。
 
+### 基线收敛记录（2026-06-05）
+
+原基线 20 条 offline 失败已全部消除；**新基线 = 206 passed / 0 failed**（`-m "not online"`）。
+
+| 优先级 | 原失败 | 处置 |
+|--------|--------|------|
+| P0 | agent 全流程 RuntimeError（asyncpg loop 绑定、未 mock LLM） | `pytest.ini` 设 `asyncio_mode=auto`；`conftest.py` 每测 dispose engine、localhost `.env` 修正、autouse 关闭 LLM；compare 用例补 `biz_super_admin`+`payroll_confirmed` 及 tool 层 `mask_items` patch |
+| P1 | `test_seed_patch_t27` | 随 P0 DB/loop 修复后恢复通过（无 seed 脚本改动） |
+| P2 | `test_all_agents_load_skills_from_skill_md` | 更新断言：Planner 设计上不绑定 SKILL.md，新增 `test_planner_has_no_bound_skills_by_design` |
+
+**xfail 登记**：无（未使用 `@pytest.mark.xfail`）。
+
+**后续 PR 门禁**：相对本基线 **零新增** offline 失败即可合并。
+
 > 说明：`AppSettings` 通过 `backend/.env` 加载且 `use_env=False`，容器内 `-e DATABASE_URL=...` 不会覆盖文件。宿主机测试务必保证 `backend/.env` 为 localhost；Docker 跑 api 时使用 `backend/.env.docker`（Compose 挂载策略以 `docker-compose.yml` 为准）。

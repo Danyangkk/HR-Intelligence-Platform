@@ -27,6 +27,7 @@ from src.eval.layer1_5 import judge_plan_compliance
 from src.eval.layer2 import collect_actual_retrieval, judge_layer2
 from src.eval.layer3 import judge_layer3
 from src.eval.loader import get_case_intent, load_eval_set
+from src.eval.version import normalize_eval_version
 from src.models import EvalCaseResult, EvalRun
 
 
@@ -43,7 +44,7 @@ async def create_eval_run(
     if case_limit:
         cases = cases[:case_limit]
     run = EvalRun(
-        version=version,
+        version=normalize_eval_version(version),
         trigger=trigger,
         triggered_by=triggered_by,
         status="running",
@@ -84,7 +85,7 @@ async def run_eval_batch(
         await db.commit()
     else:
         run = EvalRun(
-            version=version,
+            version=normalize_eval_version(version),
             trigger=trigger,
             triggered_by=triggered_by,
             status="running",
@@ -187,11 +188,13 @@ async def run_eval_batch(
                     l2 = judge_layer2(case, actual_retrieval)
                     if l2["passed"]:
                         layer2_pass += 1
+                    actual = dict(l2["actual"])
+                    actual["agent_run_id"] = full_state.get("agent_run_id")
                     await _record_case(
                         db, run_id=run.id, case_id=case_id, layer=2,
                         passed=l2["passed"],
                         expected=case.get("expected"),
-                        actual=l2["actual"],
+                        actual=actual,
                         score_detail={
                             "missing_modules": l2["missing_modules"],
                             "missing_doc_chunks": l2["missing_doc_chunks"],
@@ -218,6 +221,7 @@ async def run_eval_batch(
                 "answer": full_state.get("final") or "",
                 "citations": full_state.get("citations") or [],
                 "intent": full_state.get("intent"),
+                "agent_run_id": full_state.get("agent_run_id"),
             }
             l3 = await asyncio.to_thread(judge_layer3, case, actual)
             if l3.get("scored"):
@@ -234,7 +238,12 @@ async def run_eval_batch(
                     passed=overall >= 4.0,  # ≥4 视为 pass（趋势监控，非门禁）
                     score=overall,
                     expected=case.get("expected"),
-                    actual={"answer_preview": actual["answer"][:300], "citations": actual["citations"][:5]},
+                    actual={
+                        "answer_preview": actual["answer"][:300],
+                        "answer": actual["answer"],
+                        "citations": actual["citations"][:5],
+                        "agent_run_id": actual.get("agent_run_id"),
+                    },
                     score_detail=detail,
                     judge_reasoning=l3.get("judge_reasoning"),
                     violations=l3.get("violations"),
@@ -286,6 +295,7 @@ async def run_eval_batch(
     run.total_score = layer3_avg
     run.intent_breakdown = intent_breakdown
     run.weakness_summary = weakness
+    run.notes = "layer1_only" if only_layer1 else "full"
     await db.commit()
     return run.id
 
@@ -352,6 +362,7 @@ async def _run_full_flow(db: AsyncSession, case: dict[str, Any]) -> dict[str, An
         final_state = {**initial, "flow_timeout": True, "final": FLOW_TIMEOUT_MESSAGE}
     duration_ms = int((_time.perf_counter() - started) * 1000)
     await finalize_harness_run(harness, final_state, duration_ms=duration_ms, flow_timeout=flow_timeout)
+    final_state["agent_run_id"] = str(harness.run_id)
     return final_state
 
 

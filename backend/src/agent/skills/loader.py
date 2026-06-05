@@ -140,3 +140,58 @@ def primary_skill_label(agent: str, *, subtask_type: str | None = None, intent: 
         return SKILL_DISPLAY.get(agent, agent)
     names = [s["name"] for s in skills[:2]]
     return " · ".join(names)
+
+
+@lru_cache(maxsize=64)
+def skill_meta(skill_id: str) -> dict[str, str]:
+    loaded = load_skill(skill_id)
+    meta = loaded.get("meta") or {}
+    description = (meta.get("description") or "").strip()
+    name = str(loaded.get("name") or SKILL_DISPLAY.get(skill_id, skill_id))
+    return {"id": skill_id, "name": name, "description": description}
+
+
+def primary_skills_for(
+    agent: str,
+    subtask_type: str | None,
+    intent: str | None,
+    retrieve_mode: str | None = None,
+) -> list[str]:
+    """Return ≤2 skill ids for tier-2 full-text injection (mapping table in PR8 doc)."""
+    if not subtask_type:
+        return []
+
+    st = subtask_type.strip().lower()
+    intent_key = (intent or "").strip().lower()
+
+    if agent == "Resolver" and st == "resolve":
+        return ["entity-resolution"]
+
+    if agent == "Retriever" and st == "retrieve":
+        mode = (retrieve_mode or "structured").strip().lower()
+        if mode == "rag":
+            return ["document-rag"]
+        return ["structured-retrieval"]
+
+    if agent == "Analyst" and st == "analyze":
+        if intent_key == "compare":
+            return ["compare-benchmark"]
+        if intent_key == "attribution":
+            primary = ["attribution-methodology"]
+            for skill in skills_for_agent(agent, intent=intent, subtask_type=subtask_type):
+                sid = str(skill.get("id") or "")
+                if sid.startswith("process-") and sid not in primary:
+                    primary.append(sid)
+                    break
+            return primary[:2]
+        if intent_key in {"trend", "forecast"}:
+            return ["trend-analysis"]
+        return []
+
+    if agent == "Critic" and st == "critique":
+        return ["evidence-validation"]
+
+    if agent == "Composer" and st == "compose":
+        return ["answer-composition"]
+
+    return []

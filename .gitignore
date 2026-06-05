@@ -3,7 +3,7 @@
 .env.local
 .env.*.local
 backend/.env
-backend/.env.docker
+backend/.env.*
 # 保留示例文件
 !.env.example
 !backend/.env.example

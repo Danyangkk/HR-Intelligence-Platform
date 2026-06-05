@@ -426,6 +426,8 @@
     document.querySelectorAll('.admin-pane').forEach(p => p.classList.remove('active'));
     const pane = $('admin-' + page);
     if(pane) pane.classList.add('active');
+    const adminMain = document.querySelector('#pane-admin .admin-content');
+    if(adminMain) adminMain.classList.toggle('admin-eval-mode', page === 'eval');
     // 离开复盘页时隐藏浮条并清除导航状态
     if(page !== 'review'){
       global.hideBackFloatTickets && global.hideBackFloatTickets();
@@ -1449,6 +1451,10 @@
 
   let _evalPollTimer = null;
   let _evalSelectedRunId = null;
+  let _evalCases = [];
+  let _evalDiff = null;
+  let _evalCurrentRun = null;
+  let _evalCaseFilter = 'all';
 
   function evalStatusLabel(st){
     if(st==='running') return '<span class="ev-status-running">运行中</span>';
@@ -1457,19 +1463,493 @@
     return global.escAi(st||'—');
   }
 
+  function evalStatusBadge(st){
+    if(st==='running') return '<span class="ev-run-status running">运行中</span>';
+    if(st==='done') return '<span class="ev-run-status done">已完成</span>';
+    if(st==='failed') return '<span class="ev-run-status failed">失败</span>';
+    return `<span class="ev-run-status">${global.escAi(st||'—')}</span>`;
+  }
+
   function pct(n){ return n==null?'—':(n*100).toFixed(1)+'%'; }
   function scoreFmt(n){ return n==null?'—':Number(n).toFixed(2); }
+
+  function renderEvalMetric(label, value, sub, warn){
+    const cls = warn ? ' rv-metric-warn' : '';
+    return `<div class="rv-metric${cls}"><div class="rv-metric-label">${label}</div><div class="rv-metric-value">${value}</div>${sub?`<div class="ev-metric-sub">${sub}</div>`:''}</div>`;
+  }
+
+  function evalLayerMark(row, layerNum){
+    if(_evalRunProfile === 'layer1_only' && layerNum > 1){
+      return '<span class="ev-mark-na" style="font-size:11px">该层未运行</span>';
+    }
+    if(!row) return '<span class="ev-mark-na">—</span>';
+    return row.passed ? '<span class="ev-mark-ok">✓</span>' : '<span class="ev-mark-err">✗</span>';
+  }
+
+  function evalL3Score(row){
+    if(_evalRunProfile === 'layer1_only'){
+      return '<span class="ev-mark-na" style="font-size:11px">该层未运行</span>';
+    }
+    if(!row) return '<span class="ev-mark-na">—</span>';
+    if(row.error && !row.scored) return '<span class="ev-mark-err" title="'+global.escAi(row.error)+'">!</span>';
+    if(row.score==null) return '<span class="ev-mark-na">—</span>';
+    const cls = row.score < 4 ? 'ev-score-warn' : 'ev-score-ok';
+    return `<span class="${cls}">${Number(row.score).toFixed(1)}</span>`;
+  }
+
+  // PR6: L1/L2/L3；PR7.6 落地后改为 plan/reslv/retrv/analy/critic/answer 即可
+  const EVAL_TABLE_LAYERS = [
+    { layer: 1, header: 'L1', cell: g => evalLayerMark(g.layers[1], 1) },
+    { layer: 2, header: 'L2', cell: g => evalLayerMark(g.layers[2], 2) },
+    { layer: 3, header: 'L3 分', cell: g => evalL3Score(g.layers[3]) },
+  ];
+
+  function evalRunGateDot(r){
+    const st = r.gate_status || 'no_data';
+    if(st === 'no_data'){
+      return '<span class="ev-gate-dot na" title="无数据"></span>';
+    }
+    if(r.gate_passed){
+      return '<span class="ev-gate-dot pass" title="门禁通过"></span>';
+    }
+    return '<span class="ev-gate-dot fail" title="门禁未过"></span>';
+  }
+
+  function evalDefaultVersion(){
+    const d = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    return pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes());
+  }
+
+  function bindEvalCaseTableClicks(){
+    const host = $('evalCaseTableHost');
+    if(!host || host._evalClickBound) return;
+    host._evalClickBound = true;
+    host.addEventListener('click', ev=>{
+      const tr = ev.target.closest('tr.ev-case-row');
+      if(!tr) return;
+      const caseId = tr.getAttribute('data-case-id');
+      if(caseId) global.openEvalCaseModal(caseId);
+    });
+  }
+
+  function evalTruncate(s, n){
+    const t = String(s||'');
+    return t.length > n ? t.slice(0, n)+'…' : t;
+  }
+
+  function groupEvalCaseRows(items){
+    const map = {};
+    (items||[]).forEach(row=>{
+      if(!map[row.case_id]){
+        map[row.case_id] = {
+          case_id: row.case_id,
+          query: row.query,
+          intent: row.intent,
+          declared_layers: row.declared_layers || [1],
+          layers: {},
+        };
+      }
+      if(row.declared_layers){
+        map[row.case_id].declared_layers = row.declared_layers;
+      }
+      map[row.case_id].layers[row.layer] = row;
+    });
+    return map;
+  }
+
+  function evalCaseFailed(group){
+    return EVAL_TABLE_LAYERS.some(c=>group.layers[c.layer] && !group.layers[c.layer].passed);
+  }
+
+  function evalCaseSortKey(group){
+    const failed = evalCaseFailed(group) ? 0 : 1;
+    const l3 = group.layers[3];
+    const score = (l3 && l3.score!=null) ? l3.score : 99;
+    return [failed, score, group.case_id];
+  }
+
+  function renderEvalCaseTable(items, diff){
+    const grouped = Object.values(groupEvalCaseRows(items));
+    grouped.sort((a,b)=>{
+      const ka = evalCaseSortKey(a), kb = evalCaseSortKey(b);
+      for(let i=0;i<ka.length;i++){
+        if(ka[i]<kb[i]) return -1;
+        if(ka[i]>kb[i]) return 1;
+      }
+      return 0;
+    });
+    const regSet = new Set((diff&&diff.regressed)||[]);
+    const fixSet = new Set((diff&&diff.fixed)||[]);
+    let rows = grouped;
+    if(_evalCaseFilter==='regressed') rows = grouped.filter(g=>regSet.has(g.case_id));
+    else if(_evalCaseFilter==='fixed') rows = grouped.filter(g=>fixSet.has(g.case_id));
+
+    if(!rows.length){
+      return '<div class="rv-empty">暂无匹配的用例</div>';
+    }
+    return `<div class="table-wrap"><table class="sheet-table ev-case-table"><thead><tr>
+      <th>case</th><th>query</th><th>意图</th>${EVAL_TABLE_LAYERS.map(c=>`<th>${c.header}</th>`).join('')}<th>flaky</th>
+    </tr></thead><tbody>${rows.map(g=>{
+      const tag = regSet.has(g.case_id)?'<span class="ev-regressed-tag">新挂</span>':'';
+      return `<tr class="ev-case-row" data-case-id="${global.escAi(g.case_id)}">
+        <td>${tag}${global.escAi(g.case_id)}</td>
+        <td title="${global.escAi(g.query||'')}">${global.escAi(evalTruncate(g.query,30))}</td>
+        <td>${global.escAi(g.intent||'—')}</td>
+        ${EVAL_TABLE_LAYERS.map(c=>`<td>${c.cell(g)}</td>`).join('')}
+        <td>${g.layers[1]&&g.layers[1].flaky?'<span class="ev-flaky-tag">flaky</span>':''}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+
+  let _evalMetrics = null;
+  let _evalRunProfile = 'full';
+
+  function evalLayerPlaceholder(layerNum, row, declaredLayers){
+    const declared = declaredLayers || [];
+    if(!declared.includes(layerNum)){
+      return '— 未声明断言';
+    }
+    if(_evalRunProfile === 'layer1_only' && layerNum > 1){
+      return '该层未运行（本次为仅意图层跑批）';
+    }
+    if(!row || (!row.expected && !row.actual)){
+      return '该次运行未保存断言快照';
+    }
+    return null;
+  }
+
+    function judgeOverallInt(score){
+    if(score == null || score === '') return null;
+    return Math.max(1, Math.min(5, Math.round(Number(score))));
+  }
+
+  function renderEvalReport(r, diff, metrics){
+    metrics = metrics || {};
+    const layer1Only = _evalRunProfile === 'layer1_only' || metrics.eval_profile === 'layer1_only';
+    const assertion = metrics.assertion || {};
+    const cal = metrics.judge_calibration || {};
+    const deltaL3 = metrics.delta_grader_avg;
+    const deltaTxt = (!layer1Only && deltaL3!=null) ? (deltaL3>=0?` ↑${deltaL3.toFixed(2)}`:` ↓${Math.abs(deltaL3).toFixed(2)}`) : '';
+    let gateBadge;
+    if(metrics.gate_status === 'no_data'){
+      gateBadge = '<span class="ev-gate ev-gate-na">无数据</span>';
+    } else if(metrics.gate_passed){
+      gateBadge = '<span class="ev-gate ev-gate-pass">门禁通过</span>';
+    } else {
+      gateBadge = '<span class="ev-gate ev-gate-fail">门禁未过</span>';
+    }
+    const l1pct = metrics.planner_accuracy!=null ? (metrics.planner_accuracy*100).toFixed(1)+'%' : '';
+    const plannerBadge = l1pct ? `<span class="muted">planner ${l1pct}</span>` : '';
+    const weakest = metrics.weakest_link || '无失败';
+    const calN = cal.sample_count || 0;
+    let calVal;
+    let calWarnFlag = false;
+    if(layer1Only){
+      calVal = '该层未运行';
+    } else if(calN >= 20 && cal.agreement_rate != null){
+      calVal = Number(cal.agreement_rate).toFixed(2);
+      calWarnFlag = !!cal.warn;
+    } else {
+      calVal = `样本不足（${calN}/20）`;
+    }
+    const calWarn = (!layer1Only && calWarnFlag) ? '<div class="ev-cal-banner">judge 分数仅供参考，需重新校准 rubric（与人工一致率 &lt; 0.8）</div>' : '';
+    const flakyN = metrics.flaky_count || 0;
+    const metaDur = r.duration_ms != null ? `${r.duration_ms}ms · ` : '';
+    const graderScore = layer1Only ? '该层未运行' : (metrics.grader_avg!=null ? Number(metrics.grader_avg).toFixed(2) : '—');
+    const metricsHtml = `
+      <div class="rv-metrics">
+        ${renderEvalMetric('assertion', `${assertion.passed??'—'}/${assertion.total??'—'}`, '代码断言通过 / 总数')}
+        ${renderEvalMetric('grader 均分', graderScore+deltaTxt, '模型裁判 overall 平均（1-5）')}
+        ${renderEvalMetric('grader 校准', calVal, '与人工评分一致率（&lt;0.8 预警）', calWarnFlag)}
+        ${renderEvalMetric('最弱环节', global.escAi(weakest), '失败聚类最大簇')}
+      </div>`;
+    const head = `
+      <div class="rv-report">
+        <div class="rv-report-head">
+          <div>
+            <div class="rv-report-title">Run #${r.id} 报告 · ${global.escAi(r.version||'')} ${gateBadge} ${plannerBadge}<span class="ev-flaky-tag">flaky ${flakyN} 例</span></div>
+            <div class="rv-report-meta">${evalStatusLabel(r.status)} · ${global.escAi((r.started_at||'').replace('T',' ').slice(0,16))} · ${metaDur}${r.total_cases||0} 条</div>
+          </div>
+          <div class="ev-report-actions">
+            <button class="btn btn-sm" onclick="openEvalCoverageModal()">覆盖矩阵</button>
+          </div>
+        </div>
+        ${calWarn}${metricsHtml}
+        <div class="ev-case-toolbar">
+          <div class="rv-section-title" style="margin:0;border:0;padding:0">用例明细（失败优先）· 点行打开详情</div>
+          <div class="ev-case-filters">
+            <button class="btn btn-sm${_evalCaseFilter==='all'?' active':''}" onclick="setEvalCaseFilter('all')">全部</button>
+            <button class="btn btn-sm${_evalCaseFilter==='regressed'?' active':''}" onclick="setEvalCaseFilter('regressed')">新挂</button>
+            <button class="btn btn-sm${_evalCaseFilter==='fixed'?' active':''}" onclick="setEvalCaseFilter('fixed')">修复</button>
+          </div>
+        </div>
+        <div id="evalCaseTableHost">${renderEvalCaseTable(_evalCases, diff)}</div>
+      </div>`;
+    return head;
+  }
+
+  global.setEvalCaseFilter = function(filter){
+    _evalCaseFilter = filter;
+    const host = $('evalCaseTableHost');
+    if(host && _evalCurrentRun) host.innerHTML = renderEvalCaseTable(_evalCases, _evalDiff);
+    bindEvalCaseTableClicks();
+  };
+
+  function evalPassBadge(passed){
+    return passed ? '<span class="ev-mark-ok">✓ pass</span>' : '<span class="ev-mark-err">✗ fail</span>';
+  }
+
+  function renderEvalLayer1Block(row, declaredLayers){
+    const ph = evalLayerPlaceholder(1, row, declaredLayers);
+    if(ph){
+      return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 1 意图与计划断言</div></div><div class="muted">${ph}</div></div>`;
+    }
+    const exp = row.expected||{};
+    const act = row.actual||{};
+    const mism = (row.score_detail&&row.score_detail.mismatches)||[];
+    const left = `<div class="ev-dual-col"><h4>期望 expected</h4>
+      <div>intent: ${global.escAi(exp.intent||'—')}</div>
+      ${exp.plan_constraints?`<div>plan_constraints: ${global.escAi(JSON.stringify(exp.plan_constraints))}</div>`:''}
+    </div>`;
+    const right = `<div class="ev-dual-col"><h4>实际 actual</h4>
+      <div>intent: ${global.escAi(act.intent||'—')} ${exp.intent&&act.intent===exp.intent?'✓':'✗'}</div>
+      <div>rejected: ${global.escAi(String(!!act.rejected))}</div>
+      <div>clarify: ${global.escAi(String(!!act.clarify))}</div>
+      ${mism.length?`<pre class="ev-mismatch">${mism.map(m=>global.escAi(m)).join('\n')}</pre>`:''}
+    </div>`;
+    return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 1 意图与计划断言</div>${evalPassBadge(row.passed)}</div><div class="ev-dual">${left}${right}</div></div>`;
+  }
+
+  function renderEvalLayer2Block(row, declaredLayers){
+    const ph = evalLayerPlaceholder(2, row, declaredLayers);
+    if(ph){
+      return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 2 检索命中断言</div></div><div class="muted">${ph}</div></div>`;
+    }
+    const exp = row.expected||{};
+    const act = row.actual||{};
+    const missMod = (row.score_detail&&row.score_detail.missing_modules)||[];
+    const missDoc = (row.score_detail&&row.score_detail.missing_doc_chunks)||[];
+    const expMods = exp.expected_modules||[];
+    const expDocs = exp.expected_doc_chunks||[];
+    const actMods = act.modules||[];
+    const actDocs = act.doc_chunks||[];
+    const modLines = expMods.map(m=>{
+      const hit = actMods.some(am=>String(am).includes(m));
+      return `<div>${global.escAi(m)} ${hit?'<span class="ev-mark-ok">✓</span>':'<span class="ev-mark-err">0 行 ✗ 未命中</span>'}</div>`;
+    }).join('') || '<div class="muted">无模块期望</div>';
+    const docLines = expDocs.map(d=>{
+      const hit = actDocs.some(ad=>String(ad).includes(d)||String(d).includes(ad));
+      return `<div>${global.escAi(d)} ${hit?'<span class="ev-mark-ok">✓</span>':'<span class="ev-mark-err">0 段 ✗ 未命中</span>'}</div>`;
+    }).join('') || '<div class="muted">无文档块期望</div>';
+    let rightContent = `<div>模块: ${global.escAi(actMods.join('、')||'—')}</div><div>文档: ${global.escAi(actDocs.join('、')||'—')}</div>`;
+    if(missMod.length||missDoc.length){
+      rightContent += `<div class="ev-mismatch">${[...missMod,...missDoc].map(m=>global.escAi(m)).join('\n')}</div>`;
+    }
+    return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 2 检索命中断言</div>${evalPassBadge(row.passed)}</div><div class="ev-dual">
+      <div class="ev-dual-col"><h4>期望命中</h4>${modLines}${docLines}</div>
+      <div class="ev-dual-col"><h4>实际证据</h4>${rightContent}</div>
+    </div></div>`;
+  }
+
+  function judgeBadgeClass(v){
+    if(v==null) return 'ev-judge-badge';
+    if(v <= 2) return 'ev-judge-badge err';
+    if(v < 4) return 'ev-judge-badge warn';
+    return 'ev-judge-badge ok';
+  }
+
+  function renderEvalLayer3Block(row, declaredLayers){
+    const ph = evalLayerPlaceholder(3, row, declaredLayers);
+    if(ph){
+      return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 3 judge</div></div><div class="muted">${ph}</div></div>`;
+    }
+    if(row.error && !row.scored){
+      return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 3 judge</div></div><div class="ev-mismatch">${global.escAi(row.error)}</div></div>`;
+    }
+    const exp = row.expected||{};
+    const act = row.actual||{};
+    const detail = row.score_detail||{};
+    const points = (exp.answer_points||[]).map(p=>`<div>· ${global.escAi(p)}</div>`).join('')||'<div class="muted">—</div>';
+    const forbid = (exp.forbid||[]).map(p=>`<div class="ev-mark-err">禁止: ${global.escAi(p)}</div>`).join('');
+    const metrics = (exp.metric_callouts||[]).map(p=>`<div>口径: ${global.escAi(p)}</div>`).join('');
+    const cites = (exp.expected_citations||[]).map(c=>`<div>${global.escAi(JSON.stringify(c))}</div>`).join('');
+    const answer = act.answer || act.answer_preview || '';
+    const actCites = (act.citations||[]).slice(0,8).map(c=>`<div>${global.escAi(JSON.stringify(c))}</div>`).join('')||'<div class="muted">—</div>';
+    const badges = ['correctness','completeness','citation','compliance'].map(k=>
+      `<span class="${judgeBadgeClass(detail[k])}">${k} ${detail[k]!=null?Number(detail[k]).toFixed(1):'—'}</span>`
+    ).join('');
+    const viol = (row.violations||[]).map(v=>`<div class="ev-mark-err">${global.escAi(typeof v==='string'?v:JSON.stringify(v))}</div>`).join('');
+    const isDemoRun = _evalCurrentRun && _evalCurrentRun.trigger === 'demo';
+    const canFeedback = row.scored && row.score != null && (!row.feedback || isDemoRun);
+    const fb = row.feedback;
+    const fbDone = fb ? `<div class="ev-feedback-done">已记录：${fb.verdict==='agree'?'同意':'不同意'} · 人工分 ${fb.human_overall??'—'}${fb.note?' · '+global.escAi(fb.note):''}</div>` : '';
+    const fbDemoHint = isDemoRun && fb ? '<div class="muted" style="font-size:11px;margin-top:6px">demo 可改判，提交后更新 grader 校准卡</div>' : '';
+    const fbForm = canFeedback ? `<div class="ev-feedback-bar" id="evalFeedbackBar"${fb?' style="margin-top:8px"':''}>
+        <button type="button" class="btn btn-sm" id="evalFbAgree" onclick="selectEvalFeedbackVerdict('agree')">同意</button>
+        <button type="button" class="btn btn-sm" id="evalFbDisagree" onclick="selectEvalFeedbackVerdict('disagree')">不同意</button>
+        <label class="muted ev-fb-score-wrap" id="evalFbScoreWrap" style="flex-direction:row;align-items:center;gap:4px">人工分<input type="number" id="evalFbScore" min="1" max="5" step="1" placeholder="1-5"></label>
+        <span class="ev-fb-score-hint muted" id="evalFbScoreHint"></span>
+        <input type="text" id="evalFbNote" placeholder="备注（可选）">
+        <button type="button" class="btn btn-sm btn-primary" onclick="submitEvalFeedback()">提交</button>
+      </div>` : '';
+    const fbBar = fbDone + fbDemoHint + fbForm;
+    return `<div class="ev-layer-block"><div class="ev-layer-head"><div class="ev-layer-title">Layer 3 judge</div>${evalPassBadge(row.passed)}</div><div class="ev-dual">
+      <div class="ev-dual-col"><h4>评判依据</h4>${points}${forbid}${metrics}${cites}</div>
+      <div class="ev-dual-col"><h4>被评对象</h4><div class="ev-answer-box">${global.escAi(answer)}</div><h4 style="margin-top:10px">实际 citations</h4>${actCites}</div>
+    </div>
+    <div class="ev-judge-badges">${badges}<span class="ev-judge-badge ok">overall ${row.score!=null?Number(row.score).toFixed(2):'—'}</span></div>
+    ${row.judge_reasoning?`<div class="muted" style="font-size:12px;margin-top:8px">${global.escAi(row.judge_reasoning)}</div>`:''}
+    ${viol}${fbBar}
+    </div>`;
+  }
+
+  let _evalModalCaseId = null;
+  let _evalFbVerdict = null;
+
+  global.selectEvalFeedbackVerdict = function(verdict){
+    _evalFbVerdict = verdict;
+    const agree = $('evalFbAgree');
+    const disagree = $('evalFbDisagree');
+    if(agree) agree.classList.toggle('verdict-active', verdict === 'agree');
+    if(disagree) disagree.classList.toggle('verdict-active', verdict === 'disagree');
+    const l3 = groupEvalCaseRows(_evalCases)[_evalModalCaseId]?.layers[3];
+    const scoreWrap = $('evalFbScoreWrap');
+    const scoreEl = $('evalFbScore');
+    const hint = $('evalFbScoreHint');
+    if(verdict === 'agree'){
+      const j = judgeOverallInt(l3?.score);
+      if(scoreWrap) scoreWrap.style.display = 'none';
+      if(hint) hint.textContent = j != null ? `已采用 judge overall（${j}）` : '已采用 judge overall';
+    } else {
+      if(scoreWrap) scoreWrap.style.display = '';
+      if(scoreEl){ scoreEl.value = ''; scoreEl.disabled = false; scoreEl.focus(); }
+      if(hint) hint.textContent = '请给出你认为的分数，用于校准裁判';
+    }
+  };
+
+  global.openEvalCaseModal = function(caseId){
+    _evalModalCaseId = caseId;
+    _evalFbVerdict = null;
+    const group = groupEvalCaseRows(_evalCases)[caseId];
+    if(!group) return;
+    $('evalCaseModalTitle').textContent = `${caseId} · ${group.query||''}`;
+    const l3 = group.layers[3];
+    const traceId = (l3&&l3.actual&&l3.actual.agent_run_id)
+      || (group.layers[2]&&group.layers[2].actual&&group.layers[2].actual.agent_run_id)
+      || (group.layers[1]&&group.layers[1].actual&&group.layers[1].actual.agent_run_id);
+    const traceLink = $('evalCaseTraceLink');
+    if(traceId && traceLink){
+      traceLink.style.display = '';
+      traceLink.href = `/api/v1/agent/harness/runs/${encodeURIComponent(traceId)}`;
+      traceLink.title = traceId;
+    } else if(traceLink){
+      traceLink.style.display = 'none';
+    }
+    const declared = group.declared_layers || [1];
+    $('evalCaseModalBody').innerHTML =
+      renderEvalLayer1Block(group.layers[1], declared)+
+      renderEvalLayer2Block(group.layers[2], declared)+
+      renderEvalLayer3Block(group.layers[3], declared);
+    global.openModal('evalCaseModal');
+  };
+
+  global.submitEvalFeedback = async function(){
+    const l3 = groupEvalCaseRows(_evalCases)[_evalModalCaseId]?.layers[3];
+    if(!l3||!l3.id){ global.toast('无法提交反馈'); return; }
+    if(!_evalFbVerdict){ global.toast('请先选择同意或不同意'); return; }
+    const scoreEl = $('evalFbScore');
+    const noteEl = $('evalFbNote');
+    let human = null;
+    if(_evalFbVerdict === 'disagree'){
+      const humanRaw = scoreEl && scoreEl.value ? parseInt(scoreEl.value, 10) : null;
+      if(humanRaw == null || Number.isNaN(humanRaw)){
+        global.toast('请填写人工分（1–5）');
+        if(scoreEl) scoreEl.focus();
+        return;
+      }
+      if(humanRaw < 1 || humanRaw > 5){
+        global.toast('人工分须为 1–5');
+        return;
+      }
+      human = humanRaw;
+    }
+    try{
+      await global.apiPost('/admin/eval/feedback', {
+        case_result_id: l3.id,
+        verdict: _evalFbVerdict,
+        human_overall: human,
+        note: noteEl ? noteEl.value : '',
+      });
+      global.toast('反馈已记录，校准卡已更新');
+      closeModal('evalCaseModal');
+      if(_evalSelectedRunId) selectEvalRun(_evalSelectedRunId);
+    }catch(e){ global.toast(e.message); }
+  };
+
+  global.openEvalCoverageModal = async function(){
+    const body = $('evalCoverageBody');
+    if(!body) return;
+    body.innerHTML = '<div class="rv-empty">加载中…</div>';
+    global.openModal('evalCoverageModal');
+    try{
+      const data = await global.apiGet('/admin/eval/coverage');
+      const matrix = data.matrix||{};
+      const intents = data.intents||Object.keys(matrix);
+      const layers = data.layers||['L1','L2','L3'];
+      const matrixHtml = `<div class="rv-section-title">意图 × 层</div><div class="table-wrap"><table class="sheet-table"><thead><tr><th>意图</th>${layers.map(l=>`<th>${l}</th>`).join('')}</tr></thead><tbody>
+        ${intents.map(intent=>{
+          const row = matrix[intent]||{};
+          return `<tr><td>${global.escAi(intent)}</td>${layers.map(l=>{
+            const n = row[l]||0;
+            return `<td class="${n===0?'ev-cov-zero':''}">${n}</td>`;
+          }).join('')}</tr>`;
+        }).join('')}
+      </tbody></table></div>`;
+      const missGroups = (data.completeness&&data.completeness.groups)||[];
+      const fieldTitles = {
+        answer_points: 'answer_points',
+        forbid: 'forbid',
+        metric_callouts: 'metric_callouts',
+      };
+      const fieldHints = {
+        answer_points: 'grader 完整性评分无参照',
+        forbid: '合规红线维度无法检查',
+        metric_callouts: '口径标注无人校验',
+      };
+      const compHtml = missGroups.length
+        ? `<div class="rv-section-title" style="margin-top:16px">expected 完备度</div>
+          ${missGroups.map(g=>{
+            const title = fieldTitles[g.field]||g.field;
+            if(g.complete){
+              return `<div class="ev-cov-complete" style="margin-bottom:10px">缺 ${global.escAi(title)} 的用例（0 条）· 已完备</div>`;
+            }
+            return `<div style="margin-bottom:12px">
+              <div><strong>缺 ${global.escAi(title)} 的用例（${g.count||g.missing.length} 条）</strong></div>
+              <div class="muted" style="font-size:11px;margin:4px 0 6px">${global.escAi(fieldHints[g.field]||'')}</div>
+              <div>${(g.missing||[]).map(id=>global.escAi(id)).join(', ')}</div>
+            </div>`;
+          }).join('')}`
+        : '<div class="ev-cov-complete" style="margin-top:16px">expected 字段完备</div>';
+      const glossary = `<div class="muted" style="margin-top:16px;font-size:12px;line-height:1.6"><strong>名词解释</strong> · assertion = 确定性代码断言（Layer1/2） · grader = 模型裁判 LLM-as-judge（Layer3） · 校准 = 裁判与人工评分一致率</div>`;
+      body.innerHTML = matrixHtml + compHtml + glossary;
+    }catch(e){
+      body.innerHTML = `<div class="rv-empty rv-empty-error" onclick="openEvalCoverageModal()" style="cursor:pointer">${global.escAi(e.message)} · 点击重试</div>`;
+    }
+  };
 
   async function loadEvalPage(){
     const listHost = $('evalRunList');
     const detailHost = $('evalRunDetail');
     if(!listHost) return;
-    const triggerL1 = $('evalTriggerL1');
-    const triggerFull = $('evalTriggerFull');
-    if(triggerL1) triggerL1.style.display = canOperateTickets()?'':'none';
-    if(triggerFull) triggerFull.style.display = canOperateTickets()?'':'none';
+    const triggerWrap = $('evalTriggerWrap');
+    if(triggerWrap) triggerWrap.style.display = canOperateTickets()?'flex':'none';
     listHost.innerHTML = '<div class="rv-empty">加载中…</div>';
     try{
+      try{ await global.apiPost('/admin/eval/seed-demo', { force: false }); }catch(_e){ /* ignore */ }
+      if(canOperateTickets()){
+        try{ await global.apiPost('/admin/eval/runs/cleanup-garbage', {}); }catch(_e){ /* ignore */ }
+      }
       const data = await global.apiGet('/admin/eval/runs?limit=20');
       const items = data.items||[];
       if(!items.length){
@@ -1479,11 +1959,16 @@
       }
       listHost.innerHTML = items.map(r=>{
         const active = r.id===_evalSelectedRunId?' active':'';
-        const l1 = r.layer1||{};
-        const acc = l1.accuracy!=null?pct(l1.accuracy):'—';
+        const plannerTxt = r.planner_accuracy!=null ? ` planner ${(r.planner_accuracy*100).toFixed(1)}%` : '';
+        const demoTag = r.trigger==='demo' ? '<span class="ev-demo-tag">demo</span>' : '';
+        const timeTxt = global.escAi((r.started_at||'').replace('T',' ').slice(0,16));
         return `<div class="ev-run-item${active}" onclick="selectEvalRun(${r.id})">
-          <div><strong>#${r.id}</strong> ${global.escAi(r.version||'')} · ${evalStatusLabel(r.status)}</div>
-          <div class="ev-run-meta">L1 ${acc} · ${global.escAi((r.started_at||'').replace('T',' ').slice(0,16))}</div>
+          <div class="ev-run-head">
+            <span class="ev-run-id">#${r.id}</span>
+            ${demoTag}<span class="ev-run-ver">${global.escAi(r.version||'—')}</span>
+            ${evalStatusBadge(r.status)}
+          </div>
+          <div class="ev-run-meta">${evalRunGateDot(r)}${plannerTxt?`<span class="ev-run-meta-planner">${plannerTxt.trim()}</span>`:''}<span class="ev-run-time">${timeTxt}</span></div>
         </div>`;
       }).join('');
       const running = items.find(r=>r.status==='running');
@@ -1527,76 +2012,59 @@
       el.classList.toggle('active', el.getAttribute('onclick')===`selectEvalRun(${runId})`);
     });
     try{
-      const r = await global.apiGet('/admin/eval/runs/'+runId);
-      detailHost.innerHTML = renderEvalReport(r);
+      const [r, casesRes, diffRes] = await Promise.all([
+        global.apiGet('/admin/eval/runs/'+runId, {include_cases:false}),
+        global.apiGet('/admin/eval/runs/'+runId+'/cases'),
+        global.apiGet('/admin/eval/runs/'+runId+'/diff'),
+      ]);
+      _evalCases = casesRes.items||[];
+      _evalMetrics = casesRes.metrics||{};
+      _evalDiff = diffRes;
+      _evalCurrentRun = r;
+      _evalRunProfile = r.eval_profile || 'full';
+      _evalCaseFilter = 'all';
+      detailHost.innerHTML = renderEvalReport(r, diffRes, _evalMetrics);
+      bindEvalCaseTableClicks();
     }catch(e){
-      detailHost.innerHTML = `<div class="rv-empty rv-empty-error">${global.escAi(e.message)}</div>`;
+      detailHost.innerHTML = `<div class="rv-empty rv-empty-error" onclick="selectEvalRun(${runId})" style="cursor:pointer">加载失败，点击重试 · ${global.escAi(e.message)}</div>`;
     }
   };
 
-  function renderEvalReport(r){
-    const l1=r.layer1||{}, l2=r.layer2||{}, l3=r.layer3||{};
-    const cmp = r.compare_prev||{};
-    const delta = cmp.delta_total_score;
-    const deltaTxt = delta==null?'':(delta>=0?` ↑${delta.toFixed(2)}`:` ↓${Math.abs(delta).toFixed(2)}`);
-    const metrics = `
-      <div class="rv-metrics">
-        ${renderReviewMetric('总分', scoreFmt(r.total_score)+deltaTxt)}
-        ${renderReviewMetric('L1 意图准确率', pct(l1.accuracy))}
-        ${renderReviewMetric('L2 检索命中', pct(l2.hit_rate))}
-        ${renderReviewMetric('L3 答案均分', scoreFmt(l3.avg))}
-      </div>`;
-    const rubric = l3.scored ? `
-      <div class="rv-section">
-        <div class="rv-section-title">L3 分项均分（1-5）</div>
-        <div class="rv-metrics">
-          ${renderReviewMetric('正确性', scoreFmt(l3.correctness_avg))}
-          ${renderReviewMetric('完整性', scoreFmt(l3.completeness_avg))}
-          ${renderReviewMetric('引用', scoreFmt(l3.citation_avg))}
-          ${renderReviewMetric('合规', scoreFmt(l3.compliance_avg))}
-        </div>
-      </div>` : '';
-    const intents = r.intent_breakdown||{};
-    const intentHtml = Object.keys(intents).length ? `
-      <div class="rv-section">
-        <div class="rv-section-title">按意图分布（L3 均分）</div>
-        <div class="ev-intent-grid">
-          ${Object.entries(intents).map(([k,v])=>`
-            <div class="ev-intent-cell">
-              <div class="ev-intent-name">${global.escAi(k)}</div>
-              <div class="ev-intent-score">${scoreFmt(v.avg)}</div>
-              <div class="ev-run-meta">n=${v.count||0}</div>
-            </div>`).join('')}
-        </div>
-      </div>` : '';
-    const weak = (r.weakness_summary||[]).map(w=>`
-      <div class="ev-weak">${global.escAi(w.hint||w.kind||'')}</div>`).join('');
-    const weakHtml = weak ? `<div class="rv-section"><div class="rv-section-title">弱项清单</div>${weak}</div>` : '';
-    const fails = (r.case_results||[]).filter(c=>!c.passed).slice(0,12);
-    const failHtml = fails.length ? `
-      <div class="rv-section">
-        <div class="rv-section-title">未通过样本（最多展示 12 条）</div>
-        ${fails.map(c=>`<div class="rv-finding">
-          <div class="rv-finding-text">${global.escAi(c.case_id)} · Layer ${c.layer}</div>
-          <div class="ev-case-fail">${global.escAi(c.error||(c.score_detail&&JSON.stringify(c.score_detail))||'')}</div>
-        </div>`).join('')}
-      </div>` : '';
-    const head = `
-      <div class="rv-report">
-        <div class="rv-report-head">
-          <div class="rv-report-title">Eval #${r.id} · ${global.escAi(r.version||'')}</div>
-          <div class="rv-report-meta">${evalStatusLabel(r.status)} · ${global.escAi((r.started_at||'').replace('T',' ').slice(0,16))} · ${r.duration_ms||'—'}ms · ${r.total_cases||0} 条</div>
-        </div>`;
-    return head + metrics + rubric + intentHtml + weakHtml + failHtml + '</div>';
-  }
+  let _evalTriggerOnlyLayer1 = false;
 
-  global.triggerEvalRun = async function(onlyLayer1){
+  global.triggerEvalRun = function(onlyLayer1){
     if(!canOperateTickets()){ global.toast('仅技术超管可触发评测'); return; }
-    const ver = prompt('版本标签（可选）','eval-'+new Date().toISOString().slice(0,10)) || 'dev';
+    _evalTriggerOnlyLayer1 = !!onlyLayer1;
+    const def = evalDefaultVersion();
+    const titleEl = $('evalTriggerModalTitle');
+    const hintEl = $('evalTriggerVersionHint');
+    const submitBtn = $('evalTriggerSubmitBtn');
+    const input = $('evalTriggerVersion');
+    if(titleEl) titleEl.textContent = onlyLayer1 ? '快速检查 · 仅意图层' : '开始评测';
+    if(hintEl) hintEl.textContent = '留空则用 '+def+'，可填 v1.4.0 等';
+    if(submitBtn) submitBtn.textContent = onlyLayer1 ? '开始快速检查' : '开始评测';
+    if(input){
+      input.value = def;
+      if(!input._evalEnterBound){
+        input._evalEnterBound = true;
+        input.addEventListener('keydown', ev=>{
+          if(ev.key === 'Enter'){ ev.preventDefault(); global.submitEvalTriggerModal(); }
+        });
+      }
+    }
+    global.openModal('evalTriggerModal');
+    setTimeout(()=>{ if(input) input.focus(); input && input.select(); }, 50);
+  };
+
+  global.submitEvalTriggerModal = async function(){
+    const def = evalDefaultVersion();
+    const input = $('evalTriggerVersion');
+    const ver = (input && input.value ? input.value.trim() : '') || def;
+    closeModal('evalTriggerModal');
     const statusEl = $('evalTriggerStatus');
     if(statusEl) statusEl.textContent = '正在启动…';
     try{
-      const q = 'only_layer1='+(onlyLayer1?'true':'false')+'&version='+encodeURIComponent(ver);
+      const q = 'only_layer1='+(_evalTriggerOnlyLayer1?'true':'false')+'&version='+encodeURIComponent(ver);
       const data = await global.apiPost('/admin/eval/runs?'+q, {});
       global.toast(data.message||'已启动');
       _evalSelectedRunId = data.run_id;
