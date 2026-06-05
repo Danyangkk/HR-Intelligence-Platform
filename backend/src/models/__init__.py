@@ -16,6 +16,7 @@ class Category(Base):
     level: Mapped[int] = mapped_column(Integer, nullable=False)
     parent_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("category.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

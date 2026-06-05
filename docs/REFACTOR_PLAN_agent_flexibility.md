@@ -233,5 +233,31 @@ docker compose up --build
 ## 执行顺序与回归基线
 
 1. PR5（卫生清理）→ 2. PR1（目录）→ 3. PR2（校验）→ 4. PR3（混合取证）→ 5. PR4（观测）。
-2. 每个 PR 合并前：`pytest backend/tests` 全绿 + `router_harness` 回归通过。
+2. 每个 PR 验收：**只对比相对基线新增的失败**（见下方「本地测试环境」）；不得引入新的 offline 失败。
 3. PR2 合并后跑一次全量 eval（三层），记录基线；PR3 合并后对比，意图准确率不得下降，新增混合用例通过。
+
+### 本地测试环境（宿主机 pytest，不启 api 容器）
+
+```bash
+# 1. 依赖服务
+docker compose up -d postgres redis minio
+
+# 2. 环境变量：项目根 .env 与 backend/.env 中数据库/Redis/MinIO 指向 localhost
+#    （端口与 docker-compose.yml 映射一致：5432 / 6379 / 9000）
+
+# 3. 库结构与种子（测试报 relation does not exist 时再执行）
+cd backend
+PYTHONPATH=.. alembic upgrade head
+PYTHONPATH=.. python -m src.seed.run
+
+# 4. 门禁（排除需要 live LLM 的 online 用例）
+cd backend && PYTHONPATH=.. pytest tests -m "not online" -q
+```
+
+**基线对比流程**（每个 PR 改动前/后各跑一次第 4 步）：
+
+1. 改动前：`git stash push -u -m "wip"`（或仅 stash 工作区），跑第 4 步，将失败用例列表记入 `backend/tests/.baseline-failures.txt`（每行一个 `file::test`）。
+2. 恢复改动：`git stash pop`，再跑第 4 步。
+3. 验收标准：新失败集合 ⊆ 基线失败集合（即**不得新增** offline 失败）；允许基线里已有的失败暂时仍存在。
+
+> 说明：`AppSettings` 通过 `backend/.env` 加载且 `use_env=False`，容器内 `-e DATABASE_URL=...` 不会覆盖文件。宿主机测试务必保证 `backend/.env` 为 localhost；Docker 跑 api 时使用 `backend/.env.docker`（Compose 挂载策略以 `docker-compose.yml` 为准）。

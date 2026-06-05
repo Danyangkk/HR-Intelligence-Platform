@@ -131,6 +131,7 @@ async def seed_all(force: bool = False) -> None:
                             level=3,
                             parent_id=l2["id"],
                             name=l3["name"],
+                            description=l3.get("description"),
                             source=source_of(l3_id),
                             sort=sort_l3,
                         )

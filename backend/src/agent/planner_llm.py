@@ -22,6 +22,7 @@ from src.agent.planner_rules import (
     is_policy_question,
     is_procedure_question,
 )
+from src.agent.catalog import catalog_prompt_block
 from src.agent.prompts import PLANNER_FEW_SHOT, PLANNER_SYSTEM, with_global_preamble
 from src.agent.router_loader import inject_router
 from src.services.llm.dashscope import chat_completion
@@ -30,8 +31,18 @@ _VALID_INTENTS = frozenset({"chitchat", "policy", "lookup", "list", "aggregate",
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+_CATALOG_HEADER = """
+## 可用数据分类目录
+
+以下是全部可用数据分类目录。所有 retrieve 子任务的 target_l3 只能从本目录选取；
+文档(RAG)类分类只能配 retrieve_mode="rag"，结构化分类只能配 "structured"。
+
+"""
+
+
 def _planner_system_prompt() -> str:
-    agent = inject_router(f"{PLANNER_SYSTEM}\n\n{PLANNER_FEW_SHOT}")
+    catalog_block = _CATALOG_HEADER + catalog_prompt_block()
+    agent = inject_router(f"{PLANNER_SYSTEM}\n\n{catalog_block}\n\n{PLANNER_FEW_SHOT}")
     return with_global_preamble(agent)
 
 
