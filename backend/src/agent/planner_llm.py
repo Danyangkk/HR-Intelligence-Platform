@@ -56,10 +56,14 @@ def _build_user_prompt(
     *,
     history: list[dict[str, Any]] | None = None,
     intent_hint: str | None = None,
+    replan_gaps: list[str] | None = None,
 ) -> str:
     parts = [f"用户问题：{question.strip()}"]
     if intent_hint:
         parts.append(f"上一轮意图（仅供参考）：{intent_hint}")
+    if replan_gaps:
+        parts.append("上一轮质检缺口：" + "；".join(replan_gaps))
+        parts.append("请在新计划中补足对应取证路（可换库或追加 retrieve 子任务）。")
     if history:
         recent = history[-2:]
         lines = [f"- Q: {h.get('question', '')} → intent={h.get('intent', '')}" for h in recent if h.get("question")]
@@ -206,12 +210,21 @@ def plan_with_llm(
     *,
     history: list[dict[str, Any]] | None = None,
     intent_hint: str | None = None,
+    replan_gaps: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Return plan dict, unmatched dict, or None when LLM unavailable/invalid."""
     raw = chat_completion(
         messages=[
             {"role": "system", "content": _planner_system_prompt()},
-            {"role": "user", "content": _build_user_prompt(question, history=history, intent_hint=intent_hint)},
+            {
+                "role": "user",
+                "content": _build_user_prompt(
+                    question,
+                    history=history,
+                    intent_hint=intent_hint,
+                    replan_gaps=replan_gaps,
+                ),
+            },
         ],
         temperature=0.1,
         max_tokens=1200,
@@ -316,6 +329,7 @@ def resolve_plan(
     history: list[dict[str, Any]] | None = None,
     intent_hint: str | None = None,
     entities: dict[str, Any] | None = None,
+    replan_gaps: list[str] | None = None,
 ) -> dict[str, Any]:
     """Primary: chitchat → LLM → rules; unmatched when no business intent applies."""
     if not is_followup_with_hint(question, intent_hint):
@@ -331,7 +345,12 @@ def resolve_plan(
         rules["reasoning"] = "组织指标问法，使用结构化聚合/趋势路径（非个人 lookup）"
         return rules
 
-    llm = plan_with_llm(question, history=history, intent_hint=intent_hint)
+    llm = plan_with_llm(
+        question,
+        history=history,
+        intent_hint=intent_hint,
+        replan_gaps=replan_gaps,
+    )
     if llm:
         if llm.get("chitchat") or llm.get("unmatched"):
             return llm

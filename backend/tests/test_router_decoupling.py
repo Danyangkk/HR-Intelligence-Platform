@@ -7,7 +7,7 @@ from src.agent.router_loader import inject_router, load_router
 
 def test_router_md_exists_and_has_main_table():
     router = load_router()
-    assert "§4 意图 → 激活阶段 → skill 主表" in router
+    assert "意图 → 激活阶段 → skills 推荐拆法" in router
     assert "chitchat" in router
     assert "attribution" in router
     assert "policy 白名单" in router
@@ -31,7 +31,7 @@ def test_planner_prompt_no_duplicate_intent_mapping_table():
     prompt = _planner_system_prompt()
     assert "语义映射（必须遵守）" not in prompt
     assert "计划模板（按 intent 选用）" not in prompt
-    assert prompt.count("§4 意图 → 激活阶段 → skill 主表") == 1
+    assert prompt.count("意图 → 激活阶段 → skills 推荐拆法") == 1
 
 
 def test_inject_router_replaces_placeholder():

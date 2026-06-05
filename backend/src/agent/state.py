@@ -48,6 +48,7 @@ class AgentState(TypedDict, total=False):
     clarify: dict[str, Any] | None
     history: list[dict[str, Any]]
     replan_count: int
+    replan_gaps: list[str]
     broaden_search: bool
     critic_sufficient: bool
     critic_note: str

@@ -63,6 +63,7 @@ async def run_planner_async(state: AgentState) -> dict[str, Any]:
         history=state.get("history"),
         intent_hint=inherited.get("intent_hint"),
         entities=inherited.get("entities"),
+        replan_gaps=state.get("replan_gaps") if (state.get("replan_count") or 0) > 0 else None,
     )
     print(f"\n[Planner resolve_plan] question={question[:50]}", file=sys.stderr)
     print(f"[Planner resolve_plan] unmatched={resolved.get('unmatched')}", file=sys.stderr)

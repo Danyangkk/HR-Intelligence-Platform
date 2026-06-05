@@ -92,7 +92,9 @@ async def _composer_node(state: AgentState, config) -> dict[str, Any]:
     from src.agent.composer_rag_llm import rag_answer_draft
 
     rag_draft = None
-    if state.get("intent") == "policy" and not state.get("rejected"):
+    if not state.get("rejected") and any(
+        block.get("kind") == "documents" for block in (state.get("evidence") or [])
+    ):
         hits: list[dict[str, Any]] = []
         for block in state.get("evidence") or []:
             if block.get("kind") == "documents":
@@ -119,6 +121,7 @@ async def _replan_node(state: AgentState, config) -> dict[str, Any]:
     return {
         "replan_count": count,
         "broaden_search": True,
+        "replan_gaps": list(state.get("replan_gaps") or []),
         "plan_index": 0,
         "evidence": [{"__reset__": True}],
         "analysis": {},

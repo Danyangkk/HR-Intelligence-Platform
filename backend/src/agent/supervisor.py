@@ -188,34 +188,38 @@ async def execute_retrieve_subtask(db: AsyncSession, state: AgentState, subtask:
 
     if mode == "rag":
         l3_ids = subtask.get("target_l3") or [HANDBOOK_L3]
-        l3_id = l3_ids[0]
-        ctx.run_step("document-rag", 1, f"限定 l3_id={l3_id}")
-        ctx.record_tool("search_documents")
-        result = await invoke_tool(
-            "search_documents",
-            db,
-            l3_id=l3_id,
-            query=state["question"],
-            top_k=5,
-            only_current=True,
-        )
-        hits = result.get("hits") or []
-        ctx.run_step("document-rag", 2, f"top_k 命中 {len(hits)} 段")
-        evidence = [{"kind": "documents", "l3_id": l3_id, "hits": hits}]
-        citations = [
-            {
-                "kind": "doc",
-                "l3_id": l3_id,
-                "doc_id": hit.get("doc_id") or hit.get("document_id"),
-                "seq": hit.get("seq"),
-                "title_path": hit.get("title_path"),
-                "chunk": hit.get("text"),
-                "score": hit.get("score"),
-            }
-            for hit in hits
-        ]
-        summary = f"RAG {l3_id} · 命中 {len(hits)} 段"
-        ctx.run_step("document-rag", 3, "无命中不臆造" if not hits else "已组织 citations")
+        evidence: list[dict[str, Any]] = []
+        citations: list[dict[str, Any]] = []
+        hit_total = 0
+        for l3_id in l3_ids:
+            ctx.run_step("document-rag", 1, f"限定 l3_id={l3_id}")
+            ctx.record_tool("search_documents")
+            result = await invoke_tool(
+                "search_documents",
+                db,
+                l3_id=l3_id,
+                query=state["question"],
+                top_k=5,
+                only_current=True,
+            )
+            hits = result.get("hits") or []
+            hit_total += len(hits)
+            evidence.append({"kind": "documents", "l3_id": l3_id, "hits": hits})
+            citations.extend(
+                {
+                    "kind": "doc",
+                    "l3_id": l3_id,
+                    "doc_id": hit.get("doc_id") or hit.get("document_id"),
+                    "seq": hit.get("seq"),
+                    "title_path": hit.get("title_path"),
+                    "chunk": hit.get("text"),
+                    "score": hit.get("score"),
+                }
+                for hit in hits
+            )
+            ctx.run_step("document-rag", 2, f"{l3_id} 命中 {len(hits)} 段")
+        summary = f"RAG {len(l3_ids)} 库 · 共命中 {hit_total} 段"
+        ctx.run_step("document-rag", 3, "无命中不臆造" if hit_total == 0 else "已组织 citations")
         return {
             **ctx.to_state_patch(),
             "evidence": evidence,
