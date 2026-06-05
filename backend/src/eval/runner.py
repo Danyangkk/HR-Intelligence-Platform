@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import run_agent
 from src.eval.layer1 import judge_layer1, run_planner_for_case
+from src.eval.layer1_5 import judge_plan_compliance
 from src.eval.layer2 import collect_actual_retrieval, judge_layer2
 from src.eval.layer3 import judge_layer3
 from src.eval.loader import get_case_intent, load_eval_set
@@ -95,6 +96,7 @@ async def run_eval_batch(
 
     started = time.perf_counter()
     layer1_total = layer1_pass = 0
+    layer15_total = layer15_pass = 0
     layer2_total = layer2_pass = 0
     layer3_total = layer3_scored = 0
     rubric_sums = {"correctness": 0.0, "completeness": 0.0, "citation": 0.0, "compliance": 0.0}
@@ -136,6 +138,23 @@ async def run_eval_batch(
         layer1_total += 1
         if layer1_result["passed"]:
             layer1_pass += 1
+
+        # ----- Layer 1.5：计划合规（不变式）-----
+        layer15_result = judge_plan_compliance(planner_state)
+        if not layer15_result.get("skipped"):
+            layer15_total += 1
+            if layer15_result["passed"]:
+                layer15_pass += 1
+        await _record_case(
+            db,
+            run_id=run.id,
+            case_id=case_id,
+            layer=15,
+            passed=layer15_result["passed"],
+            expected={"invariants": "I1-I7"},
+            actual=layer15_result.get("actual"),
+            score_detail={"skipped": layer15_result.get("skipped"), "reason": layer15_result.get("reason")},
+        )
 
         # ----- 是否需要跑全流程 -----
         need_full = bool(case_layers & {2, 3})
@@ -239,7 +258,14 @@ async def run_eval_batch(
         }
         for intent, scores in intent_results.items()
     }
-    weakness = _compute_weakness(layer1_total, layer1_pass, intent_breakdown, rubric_avg)
+    weakness = _compute_weakness(
+        layer1_total,
+        layer1_pass,
+        intent_breakdown,
+        rubric_avg,
+        layer15_total=layer15_total,
+        layer15_pass=layer15_pass,
+    )
 
     # 重新 fetch 一遍避免 stale state
     run = await db.get(EvalRun, run.id)
@@ -366,8 +392,17 @@ def _compute_weakness(
     layer1_pass: int,
     intent_breakdown: dict[str, dict[str, Any]],
     rubric_avg: dict[str, float | None],
+    *,
+    layer15_total: int = 0,
+    layer15_pass: int = 0,
 ) -> list[dict[str, Any]]:
     weakness: list[dict[str, Any]] = []
+    if layer15_total and (layer15_pass / layer15_total) < 0.95:
+        weakness.append({
+            "kind": "plan_compliance",
+            "value": round(layer15_pass / layer15_total, 3),
+            "hint": "Planner 计划不变式合规率偏低，检查目录 target_l3 与 analyze/critique 配对",
+        })
     # 意图弱项：< 4.0 / 准确率低
     if layer1_total and (layer1_pass / layer1_total) < 0.9:
         weakness.append({

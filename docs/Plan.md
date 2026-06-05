@@ -139,3 +139,14 @@ curl -X POST "http://localhost:8080/api/v1/docs/l3-1-1-1/search?q=请假"
 ```
 
 **验收**：命中现行制度片段；无结果时 hits=[]。
+
+## 六、Agent 取证柔性化改造（2026-06）
+
+设计决策记录（详见 `docs/REFACTOR_PLAN_agent_flexibility.md`）：
+
+- **意图降级为治理标签**：intent 仍用于观测聚类与 Eval Layer1，但不再锁死 subtask 模板；Planner 自由输出 DAG，由不变式校验兜底。
+- **不变式清单（I1–I7）**：合法 subtask 类型、compose 唯一收尾、analyze⇒retrieve+critique、target_l3 目录白名单、RAG/结构化互斥、≤10 步。
+- **L3 目录驱动**：84 项 `categories.json` description + `catalog.py` 注入 Planner，新增表无需改 few-shot。
+- **混合取证**：分析类问题可追加 RAG 路；Retriever 遍历多文档库；Composer 按 evidence 含 documents 触发制度草稿。
+- **降级路径保持死板**：`planner_rules.build_plan` 结构稳定，硬编码 l3 ID 纳入目录白名单测试。
+- **回归基线**：宿主机 `cd backend && PYTHONPATH=.. pytest tests -m "not online" -q`；对比 `backend/tests/.baseline-failures.txt` 不得新增失败。

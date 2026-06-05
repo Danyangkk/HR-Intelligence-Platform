@@ -112,6 +112,18 @@ def extract_decision(
             decision["intent"] = result.get("intent")
             if result.get("intent") == "aggregate":
                 decision["forced_aggregate"] = True
+            plan = result.get("plan") or state.get("plan") or []
+            if plan:
+                decision["plan_steps"] = [
+                    {
+                        "id": item.get("id"),
+                        "type": item.get("type"),
+                        "retrieve_mode": item.get("retrieve_mode"),
+                        "target_l3": (item.get("target_l3") or [])[:8],
+                    }
+                    for item in plan
+                    if isinstance(item, dict) and item.get("type")
+                ]
     elif node_name == "resolver":
         if result.get("clarify"):
             decision["clarify"] = True

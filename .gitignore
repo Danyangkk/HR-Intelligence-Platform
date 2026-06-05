@@ -47,3 +47,6 @@ Thumbs.db
 # ===== Framework templates (not part of app) =====
 .sdd/
 SDD_V7_1/
+
+# ===== Local test baseline (developer machine only) =====
+backend/tests/.baseline-failures.txt
