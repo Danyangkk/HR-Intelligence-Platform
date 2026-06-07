@@ -75,19 +75,22 @@ fi
 
 echo "==> admin APIs"
 check_authed "$TECH_TOKEN" "eval runs" "/admin/eval/runs"
-check_authed "$TECH_TOKEN" "tickets" "/admin/tickets"
+check_authed "$TECH_TOKEN" "tickets (mine)" "/admin/tickets?mine=true"
 
-echo "==> agent SSE (chitchat short-circuit)"
-sse_code=$(curl -s -o /dev/null -w '%{http_code}' -N \
+echo "==> agent SSE (missing-key hint or live answer)"
+sse_body=$(curl -s -N \
   -X POST "${API}/agent/ask" \
   -H "Authorization: Bearer ${TECH_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"question":"你好","stream":true}' \
-  --max-time 30)
-if [ "$sse_code" != "200" ]; then
-  echo "FATAL: agent SSE returned HTTP ${sse_code}" >&2
+  --max-time 30 | head -c 4096)
+if printf '%s' "$sse_body" | grep -q "DASHSCOPE_API_KEY"; then
+  echo "    agent SSE missing-key hint OK"
+elif printf '%s' "$sse_body" | grep -q "event:"; then
+  echo "    agent SSE OK"
+else
+  echo "FATAL: agent SSE unexpected body: ${sse_body}" >&2
   exit 1
 fi
-echo "    agent SSE OK"
 
 echo "==> fresh-clone smoke passed"

@@ -16,6 +16,12 @@ RERANK_MODEL = "gte-rerank-v2"
 EMBED_DIM = 1024
 EMBED_BATCH = 10
 
+MISSING_DASHSCOPE_KEY_MESSAGE = "未配置模型 Key，请在 .env 填入 DASHSCOPE_API_KEY"
+
+
+def is_dashscope_configured() -> bool:
+    return bool(_api_key())
+
 
 def _api_key() -> str:
     return (get_settings().dashscope_api_key or "").strip()

@@ -14,7 +14,7 @@ jobs:
         image: pgvector/pgvector:pg15
         env:
           POSTGRES_USER: hr
-          POSTGRES_PASSWORD: hr
+          POSTGRES_PASSWORD: hr_secret
           POSTGRES_DB: hr_agent
         ports:
           - 5432:5432
@@ -24,7 +24,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://hr:hr@localhost:5432/hr_agent
+      DATABASE_URL: postgresql+asyncpg://hr:hr_secret@localhost:5432/hr_agent
       SECRET_KEY: ci-test-secret
       ENV: test
     steps:
@@ -53,7 +53,7 @@ jobs:
         image: pgvector/pgvector:pg15
         env:
           POSTGRES_USER: hr
-          POSTGRES_PASSWORD: hr
+          POSTGRES_PASSWORD: hr_secret
           POSTGRES_DB: hr_agent
         ports:
           - 5432:5432
@@ -63,7 +63,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://hr:hr@localhost:5432/hr_agent
+      DATABASE_URL: postgresql+asyncpg://hr:hr_secret@localhost:5432/hr_agent
       SECRET_KEY: ci-test-secret
       ENV: test
     steps:

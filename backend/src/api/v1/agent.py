@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import run_agent
-from src.agent.stream import run_agent_stream
+from src.agent.stream import format_sse, run_agent_stream
 from src.api.deps import CurrentUser, get_current_user, get_optional_user, require_audit_view, resolve_role
 from src.core.response import fail, ok
 from src.db.session import get_db
@@ -24,6 +24,7 @@ from src.services.metrics.calc import CalcError, calculate_metric, calculate_ope
 from src.services.metrics.dictionary import get_metric, list_categories, list_metrics, search_metrics
 from src.services.rbac import can_read_l3
 from src.services.rag_search import search_documents
+from src.services.llm.dashscope import MISSING_DASHSCOPE_KEY_MESSAGE, is_dashscope_configured
 from src.schemas.feedback import AgentFeedbackRequest, BadcaseReviewUpdate
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -326,8 +327,45 @@ async def agent_ask(
     if not body.question.strip():
         return fail(400, "question 不能为空")
 
-    role = resolve_role(user, body.role)
     session_id = str(uuid.uuid4())
+
+    if not is_dashscope_configured():
+        if body.stream:
+            async def _missing_key_stream():
+                yield format_sse(
+                    "answer",
+                    {
+                        "text": MISSING_DASHSCOPE_KEY_MESSAGE,
+                        "citations": [],
+                        "limitation": "",
+                        "intent": "",
+                        "entities": body.entities or {},
+                        "session_id": session_id,
+                        "direct": True,
+                    },
+                )
+                yield format_sse("done", {})
+
+            return StreamingResponse(
+                _missing_key_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "X-Session-Id": session_id,
+                },
+            )
+        return ok(
+            {
+                "answer": MISSING_DASHSCOPE_KEY_MESSAGE,
+                "citations": [],
+                "direct": True,
+                "session_id": session_id,
+            }
+        )
+
+    role = resolve_role(user, body.role)
     actor = None if user.username == "anonymous" else user.username
 
     if body.stream:

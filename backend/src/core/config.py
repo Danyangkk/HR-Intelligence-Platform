@@ -7,12 +7,23 @@ from pycore.core import BaseSettings, ConfigLoader, ConfigManager
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ENV_CANDIDATES = (_BACKEND_DIR / ".env", _BACKEND_DIR.parent / ".env")
-# Docker 容器内优先读 .env.docker，避免宿主机 pytest 写入的 localhost .env 通过 volume 污染 API
 _DOCKER_ENV = _BACKEND_DIR / ".env.docker"
-if Path("/.dockerenv").exists() and _DOCKER_ENV.exists():
-    _ENV_FILE = _DOCKER_ENV
-else:
-    _ENV_FILE = next((path for path in _ENV_CANDIDATES if path.exists()), _BACKEND_DIR / ".env")
+_DOCKER_ENV_EXAMPLE = _BACKEND_DIR / ".env.docker.example"
+_LOCAL_ENV = _BACKEND_DIR / ".env.local"
+
+
+def _env_files_to_load() -> list[Path]:
+    """Later files override earlier keys. Docker: .env.docker → .env.local."""
+    if Path("/.dockerenv").exists():
+        base = _DOCKER_ENV if _DOCKER_ENV.exists() else _DOCKER_ENV_EXAMPLE
+        files = [base] if base.exists() else []
+        if _LOCAL_ENV.exists():
+            files.append(_LOCAL_ENV)
+        return files
+    files = [p for p in _ENV_CANDIDATES if p.exists()]
+    if _LOCAL_ENV.exists() and _LOCAL_ENV not in files:
+        files.append(_LOCAL_ENV)
+    return files
 
 
 class DotEnvConfigLoader(ConfigLoader):
@@ -81,8 +92,12 @@ class AppSettings(BaseSettings):
 
 _manager = ConfigManager[AppSettings]()
 _manager.register_loader(DotEnvConfigLoader())
-if _ENV_FILE.exists():
-    _manager.load(AppSettings, _ENV_FILE, use_env=False)
+_loader = DotEnvConfigLoader()
+_merged: dict[str, Any] = {}
+for _path in _env_files_to_load():
+    _merged.update(_loader.load(_path))
+if _merged:
+    _manager.load_from_dict(AppSettings, _merged)
 else:
     _manager.load_from_dict(AppSettings, {})
 

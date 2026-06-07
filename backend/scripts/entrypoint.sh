@@ -3,10 +3,10 @@ set -e
 cd /app/backend
 export PYTHONPATH=/app
 
-if [ -f /app/backend/.env.docker ] && [ ! -f /app/backend/.env ]; then
+if [ -f /app/backend/.env.docker ]; then
   cp /app/backend/.env.docker /app/backend/.env
-elif [ -f /app/backend/.env.docker ]; then
-  cp /app/backend/.env.docker /app/backend/.env
+elif [ -f /app/backend/.env.docker.example ]; then
+  cp /app/backend/.env.docker.example /app/backend/.env
 fi
 
 echo "Running database migrations..."
