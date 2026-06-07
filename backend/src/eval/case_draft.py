@@ -90,6 +90,11 @@ def _default_layers(intent: str | None) -> list[int]:
     return [1]
 
 
+def _is_guardrail_scenario(*parts: str | None) -> bool:
+    blob = " ".join(p for p in parts if p).lower()
+    return "guardrail" in blob or ("拦截" in blob and ("aggregate" in blob or "成本" in blob))
+
+
 def build_eval_case_yaml_draft(
     *,
     ticket_id: int,
@@ -109,6 +114,9 @@ def build_eval_case_yaml_draft(
         or "TODO: 填写评测 query"
     )
     intent = _infer_intent_from_hint(hint)
+    guardrail = _is_guardrail_scenario(hint, content_biz, source_phenomenon)
+    if guardrail and not intent:
+        intent = "aggregate"
     case_id = f"e-tkt-{ticket_id:03d}-1"
     layers = _default_layers(intent)
     layer_text = ", ".join(str(x) for x in layers)
@@ -118,8 +126,16 @@ def build_eval_case_yaml_draft(
         f'  query: "{query.replace(chr(34), chr(92) + chr(34))}"',
         f"  layer: [{layer_text}]",
         "  expected: {}",
-        "  # TODO: 补全 intent / reject / answer_points 等断言后入集",
     ]
-    if intent:
-        lines.insert(-1, f"  # 建议 intent: {intent}")
+    if guardrail:
+        lines.extend(
+            [
+                "  # guardrail 场景：aggregate 提问被薪资 guardrail 拦截",
+                "  # 建议 expected.reject: true（或 rejected: true）",
+            ]
+        )
+    else:
+        lines.append("  # TODO: 补全 intent / reject / answer_points 等断言后入集")
+        if intent:
+            lines.append(f"  # 建议 intent: {intent}")
     return "\n".join(lines)

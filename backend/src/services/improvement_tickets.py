@@ -106,6 +106,10 @@ def _normalize_ticket_status(row: ImprovementTicket) -> str:
     return st
 
 
+def _ticket_no(row: ImprovementTicket) -> str:
+    return f"#{row.id:03d}" if row.id is not None else "—"
+
+
 def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dict[str, Any]:
     source_link = _resolve_source_link(row, role=role)
     role_n = normalize_role(role) if role else BIZ_SUPER_ADMIN
@@ -123,7 +127,7 @@ def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dic
     eval_link = _ticket_eval_link(row)
     source_link = source_link or {}
     eval_yaml_draft = None
-    if role_n == TECH_SUPER_ADMIN and st in {"in_progress", "gate_failed"}:
+    if role_n == TECH_SUPER_ADMIN and st in {"in_progress", "gate_failed"} and row.id is not None:
         eval_yaml_draft = build_eval_case_yaml_draft(
             ticket_id=row.id,
             draft_changes=draft,
@@ -133,7 +137,7 @@ def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dic
         )
     return {
         "id": row.id,
-        "ticket_no": f"#{row.id:03d}",
+        "ticket_no": _ticket_no(row),
         "title": row.title,
         "content_biz": row.content_biz,
         "draft_changes": draft,

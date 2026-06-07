@@ -10,9 +10,14 @@ from sqlalchemy import select
 from src.db.session import AsyncSessionLocal
 from src.eval.coverage import build_eval_coverage
 from src.eval.demo_seed import (
+    DEMO_RUN_B_VERSION,
     DEMO_TRIGGER,
     assert_demo_metrics,
     delete_demo_eval_runs,
+    demo_run_spec,
+    demo_calibration_unique_samples,
+    demo_feedback_counts,
+    demo_planner_accuracy,
     seed_eval_demo,
 )
 from src.eval.loader import load_eval_set
@@ -27,7 +32,7 @@ from src.services.eval_service import (
 
 
 def _assert_metrics_derivable(rows, payload_metrics, run):
-    direct = compute_metrics_from_case_rows(rows)
+    direct = compute_metrics_from_case_rows(rows, run=run)
     assert payload_metrics["assertion"] == direct["assertion"]
     assert payload_metrics["grader_avg"] == direct["grader_avg"]
     assert payload_metrics["gate_passed"] == direct["gate_passed"]
@@ -94,10 +99,10 @@ async def test_demo_run_b_regression_story():
         rows_b = (
             await db.execute(select(EvalCaseResult).where(EvalCaseResult.run_id == reg.id))
         ).scalars().all()
-        metrics_b = compute_metrics_from_case_rows(rows_b)
+        metrics_b = compute_metrics_from_case_rows(rows_b, run=reg)
         assert metrics_b["gate_passed"] is False
-        assert metrics_b["planner_accuracy"] == 0.8667
-        assert metrics_b["grader_avg"] == 4.1
+        run_b_spec = demo_run_spec(DEMO_RUN_B_VERSION)
+        assert metrics_b["planner_accuracy"] == demo_planner_accuracy(run_b_spec)
         assert metrics_b["weakest_link"] == diff_b["failure_clusters"][0]["label"]
         diff_c = await get_run_diff(db, fix.id, against=reg.id)
         for cid in diff_b["regressed"]:

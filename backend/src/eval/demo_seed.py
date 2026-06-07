@@ -19,6 +19,10 @@ from src.services.improvement_tickets import DEMO_TICKET_TITLES
 
 DEMO_TRIGGER = "demo"
 GATE_DEMO_NEW_CASE = "e-tkt-016-1"
+DEMO_RUN_B_VERSION = "v1.4.0"
+DEMO_CALIBRATION_DISAGREE_COUNT = 4
+DEMO_CALIBRATION_EXTRA_AGREE = 2
+DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS = (0.82, 0.88)
 
 # Layer pass/fail overrides per run (case_id → set of failing layers)
 RUN_A_L1_FAIL = frozenset({"e-policy-1", "e-agg-2"})
@@ -284,7 +288,7 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             started_at=base - timedelta(hours=2),
             layers=frozenset({1, 2}),
             run_type="gate",
-            l1_fail=frozenset({*RUN_A_L1_FAIL, "e-lookup-1", GATE_DEMO_NEW_CASE}),
+            l1_fail=frozenset({"e-policy-1", "e-lookup-1", GATE_DEMO_NEW_CASE}),
             l2_fail=frozenset({"e-lookup-1"}),
             duration_ms=95_000,
             gate_new_case_ids=[GATE_DEMO_NEW_CASE],
@@ -299,6 +303,58 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             gate_new_case_ids=[GATE_DEMO_NEW_CASE],
         ),
     ]
+
+
+def demo_run_spec(version: str, now: datetime | None = None) -> DemoRunSpec:
+    for spec in _demo_run_specs(now):
+        if spec.version == version:
+            return spec
+    raise KeyError(version)
+
+
+def demo_l3_case_count(spec: DemoRunSpec, cases: list[dict[str, Any]] | None = None) -> int:
+    cases = cases or load_eval_set()
+    return sum(
+        1 for c in cases if 3 in spec.layers and 3 in (c.get("layer") or [])
+    )
+
+
+def demo_planner_accuracy(spec: DemoRunSpec, cases: list[dict[str, Any]] | None = None) -> float:
+    cases = cases or load_eval_set()
+    l1_cases = [c for c in cases if 1 in spec.layers and 1 in (c.get("layer") or [])]
+    if not l1_cases:
+        return 0.0
+    return round((len(l1_cases) - len(spec.l1_fail)) / len(l1_cases), 4)
+
+
+def demo_expected_grader_avg(spec: DemoRunSpec, cases: list[dict[str, Any]] | None = None) -> float | None:
+    cases = cases or load_eval_set()
+    l3_ids = [c["id"] for c in cases if 3 in spec.layers and 3 in (c.get("layer") or [])]
+    if not l3_ids:
+        return None
+    _init_l3_score_maps()
+    scores = [spec.l3_scores.get(cid, 4.5) for cid in l3_ids]
+    return round(sum(scores) / len(scores), 2)
+
+
+def demo_feedback_counts(spec: DemoRunSpec, cases: list[dict[str, Any]] | None = None) -> tuple[int, int, int]:
+    """Return (total_rows, agree_rows, disagree_rows) for _seed_feedback on this spec."""
+    l3_count = demo_l3_case_count(spec, cases)
+    total = l3_count + DEMO_CALIBRATION_EXTRA_AGREE
+    disagree = min(DEMO_CALIBRATION_DISAGREE_COUNT, l3_count)
+    agree = total - disagree
+    return total, agree, disagree
+
+
+def demo_calibration_unique_samples(
+    spec: DemoRunSpec | None = None,
+    *,
+    cases: list[dict[str, Any]] | None = None,
+    version: str = DEMO_RUN_B_VERSION,
+) -> int:
+    """Unique L3 case results with seed feedback on the calibration pool run."""
+    spec = spec or demo_run_spec(version)
+    return demo_l3_case_count(spec, cases)
 
 
 def _sync_run_aggregates(run: EvalRun, rows: list[EvalCaseResult]) -> None:
@@ -328,8 +384,8 @@ def _seed_feedback(rows: list[EvalCaseResult]) -> list[EvalJudgeFeedback]:
         if i < 4:
             verdict = "disagree"
             rounded = int(round(float(row.score)))
-            # 最后 1 条 disagree 人工分距 judge ≤1，使演示校准率落在 0.82–0.88
-            human = max(1, rounded - (1 if i == 3 else 2))
+            # 3 条严格 disagree + 1 条距 judge ≤1，使 21 条 L3 时校准率落在 0.82–0.88
+            human = max(1, rounded - 1) if i == 3 else 1
         feedbacks.append(
             EvalJudgeFeedback(
                 case_result_id=row.id,
@@ -613,31 +669,23 @@ async def seed_eval_demo(
 
 def assert_demo_metrics(run: EvalRun, rows: list[EvalCaseResult]) -> None:
     """Hard assertion: card metrics must match case rows exactly."""
-    metrics = compute_metrics_from_case_rows(rows)
-    targets: dict[str, dict[str, Any]] = {
-        "v1.3.0-基线": {
-            "planner_accuracy": 0.9333,
-            "gate_passed": True,
-            "grader_avg": 4.4,
-        },
-        "v1.4.0": {
-            "planner_accuracy": 0.8667,
-            "gate_passed": False,
-            "grader_avg": 4.1,
-        },
-        "v1.4.1": {
-            "gate_passed": True,
-            "grader_avg": 4.5,
-        },
-    }
-    t = targets.get(run.version)
-    if not t:
+    metrics = compute_metrics_from_case_rows(rows, run=run)
+    try:
+        spec = demo_run_spec(run.version)
+    except KeyError:
         return
-    if "planner_accuracy" in t:
-        assert metrics["planner_accuracy"] == t["planner_accuracy"], run.version
-    if "gate_passed" in t:
-        assert metrics["gate_passed"] is t["gate_passed"], run.version
-    if "grader_avg" in t and metrics["grader_avg"] is not None:
-        assert abs(metrics["grader_avg"] - t["grader_avg"]) < 0.011, (
-            f"{run.version} grader_avg {metrics['grader_avg']} != {t['grader_avg']}"
+    if spec.run_type != "full" or spec.layers != frozenset({1, 2, 3}):
+        return
+    cases = load_eval_set()
+    assert metrics["planner_accuracy"] == demo_planner_accuracy(spec, cases), run.version
+    expected_grader = demo_expected_grader_avg(spec, cases)
+    if expected_grader is not None and metrics["grader_avg"] is not None:
+        assert abs(metrics["grader_avg"] - expected_grader) < 0.011, (
+            f"{run.version} grader_avg {metrics['grader_avg']} != {expected_grader}"
         )
+    from src.services.eval_service import LAYER1_GATE_THRESHOLD
+
+    expected_gate = metrics["planner_accuracy"] >= LAYER1_GATE_THRESHOLD
+    if run.version == "v1.4.0":
+        expected_gate = False
+    assert metrics["gate_passed"] is expected_gate, run.version

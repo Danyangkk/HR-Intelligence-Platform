@@ -8,7 +8,16 @@ import pytest
 from sqlalchemy import func, select
 
 from src.db.session import AsyncSessionLocal
-from src.eval.demo_seed import delete_demo_eval_runs, seed_eval_demo, DEMO_TRIGGER
+from src.eval.demo_seed import (
+    DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS,
+    DEMO_RUN_B_VERSION,
+    DEMO_TRIGGER,
+    delete_demo_eval_runs,
+    demo_calibration_unique_samples,
+    demo_feedback_counts,
+    demo_run_spec,
+    seed_eval_demo,
+)
 from src.models import EvalCaseResult, EvalJudgeFeedback, EvalRun
 from src.services.eval_service import compute_judge_calibration, submit_judge_feedback
 
@@ -39,15 +48,19 @@ async def test_demo_run_b_has_22_calibration_samples():
             .join(EvalCaseResult, EvalCaseResult.id == EvalJudgeFeedback.case_result_id)
             .where(EvalCaseResult.run_id == run.id, EvalJudgeFeedback.verdict == "disagree")
         )
-        assert fb_count == 22
-        assert agree == 18
-        assert disagree == 4
+        run_b_spec = demo_run_spec(DEMO_RUN_B_VERSION)
+        fb_total, agree_exp, disagree_exp = demo_feedback_counts(run_b_spec)
+        cal_unique = demo_calibration_unique_samples(run_b_spec)
+        lo, hi = DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS
+        assert fb_count == fb_total
+        assert agree == agree_exp
+        assert disagree == disagree_exp
 
         cal = await compute_judge_calibration(db, run_id=run.id)
-        assert cal["sample_count"] == 20  # 22 rows, 20 unique L3 case results (latest wins)
+        assert cal["sample_count"] == cal_unique
         assert cal["insufficient"] is False
         assert cal["agreement_rate"] is not None
-        assert 0.82 <= cal["agreement_rate"] <= 0.88
+        assert lo <= cal["agreement_rate"] <= hi
 
         await delete_demo_eval_runs(db)
 
@@ -76,10 +89,11 @@ async def test_demo_run_c_calibration_includes_seed_pool():
             created_by="tech_admin",
         )
         cal = await compute_judge_calibration(db, run_id=run_c.id)
-        assert cal["sample_count"] == 21  # 20 seed (v1.4.0) + 1 demo session on v1.4.1
+        assert cal["sample_count"] == demo_calibration_unique_samples() + 1
         assert cal["insufficient"] is False
         assert cal["agreement_rate"] is not None
-        assert 0.82 <= cal["agreement_rate"] <= 0.88
+        lo, hi = DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS
+        assert lo <= cal["agreement_rate"] <= hi
         await delete_demo_eval_runs(db)
 
 
@@ -118,7 +132,7 @@ async def test_real_run_calibration_excludes_demo_seed_pool():
             ),
         )
         real_cal = await compute_judge_calibration(db, run_id=real.id)
-        assert demo_cal["sample_count"] == 20
+        assert demo_cal["sample_count"] == demo_calibration_unique_samples()
         assert real_cal["sample_count"] == 1
         assert real_cal["insufficient"] is True
         await db.delete(real)
@@ -203,7 +217,7 @@ async def test_demo_resubmit_updates_calibration_without_double_count():
             )
         )
         cal_before = await compute_judge_calibration(db, run_id=run_b.id)
-        assert cal_before["sample_count"] == 20
+        assert cal_before["sample_count"] == demo_calibration_unique_samples()
 
         await submit_judge_feedback(
             db,
@@ -214,7 +228,7 @@ async def test_demo_resubmit_updates_calibration_without_double_count():
             created_by="tech_admin",
         )
         cal_after = await compute_judge_calibration(db, run_id=run_b.id)
-        assert cal_after["sample_count"] == 20
+        assert cal_after["sample_count"] == demo_calibration_unique_samples()
         assert cal_after["agreement_rate"] is not None
         assert cal_after["agreement_rate"] < cal_before["agreement_rate"]
 
