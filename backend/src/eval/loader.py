@@ -1,5 +1,7 @@
 """加载 eval_set.yaml 并规范化字段。
 
+eval_set.yaml 只读：系统代码不得写入该文件；入集唯一通道是人工编辑 YAML 后走 Git。
+
 case schema:
     id: str
     query: str

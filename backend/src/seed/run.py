@@ -87,10 +87,14 @@ async def seed_all(force: bool = False) -> None:
                 print(f"seed: mock_records={mock_count} (categories already present)")
             else:
                 print("seed: already present, skip (use force=True to reseed)")
+            await seed_demo_users(session, pwd_context.hash)
+            ticket_count = await seed_demo_tickets(session)
+            if ticket_count:
+                print(f"seed: demo_tickets inserted={ticket_count}")
             from src.eval.demo_seed import seed_eval_demo
 
-            demo_ids = await seed_eval_demo(session, force=True)
-            print(f"seed: eval demo runs={len(demo_ids)}")
+            demo_ids = await seed_eval_demo(session, force=False)
+            print(f"seed: eval demo runs={len(demo_ids)} (ensure, no force wipe)")
             return
 
         if force:
@@ -170,7 +174,9 @@ async def seed_all(force: bool = False) -> None:
             )
 
         await seed_demo_users(session, pwd_context.hash)
-        await seed_demo_tickets(session)
+        ticket_count = await seed_demo_tickets(session)
+        if ticket_count:
+            print(f"seed: demo_tickets inserted={ticket_count}")
 
         await session.commit()
         mock_count = await seed_mock_records(session, force=force)
@@ -179,7 +185,7 @@ async def seed_all(force: bool = False) -> None:
 
         from src.eval.demo_seed import seed_eval_demo
 
-        demo_ids = await seed_eval_demo(session, force=True)
+        demo_ids = await seed_eval_demo(session, force=force)
         print(f"seed: eval demo runs={len(demo_ids)}")
 
         print(

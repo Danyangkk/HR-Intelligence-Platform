@@ -20,7 +20,11 @@
     ticket_status: {
       pending: '待处理',
       in_progress: '处理中',
-      awaiting_gate: '待验证',
+      gate_running: '门禁跑批中',
+      gate_failed: '门禁未通过',
+      gate_passed: '门禁通过',
+      legacy_retest_pending: '待提测（旧流程）',
+      awaiting_gate: '待提测（旧流程）',
       released: '已上线',
       done: '已上线',
       rejected: '已驳回',
@@ -300,7 +304,7 @@
 
   function renderAdminNav(){
     // 所有管理功能已整合到用户下拉框，外部不再显示独立 tab
-    const el = $('adminNav'); 
+    const el = document.getElementById('adminNav');
     if(el) el.innerHTML = '';
   }
   global.renderAdminNav = renderAdminNav;
@@ -759,12 +763,18 @@
   global.loadReviewPageWithFilter = loadReviewPageWithFilter;
 
   function ticketStatusBadge(status){
+    if(status === 'gate_running'){
+      return `<span class="tk-status tk-st-gate-running"><span class="tk-spin" aria-hidden="true"></span>${global.escAi(ticketStatusLabel(status))}</span>`;
+    }
     const map = {
       pending: 'tk-st-pending',
       in_progress: 'tk-st-progress',
-      awaiting_gate: 'tk-st-gate',
-      released: 'tk-st-done',
-      done: 'tk-st-done',
+      gate_failed: 'tk-st-gate-fail',
+      gate_passed: 'tk-st-gate-pass',
+      legacy_retest_pending: 'tk-st-legacy',
+      awaiting_gate: 'tk-st-legacy',
+      released: 'tk-st-released',
+      done: 'tk-st-released',
       rejected: 'tk-st-rejected',
       deferred: 'tk-st-hold',
       hold: 'tk-st-hold',
@@ -785,28 +795,91 @@
     return `<span class="ticket-note-preview" title="${global.escAi(raw)}">${global.escAi(preview)}${countHint}</span>`;
   }
 
+  function ticketEvalLinkCell(t){
+    const link = t.eval_link;
+    if(!link || !link.run_id){
+      return '<span class="muted">—</span>';
+    }
+    const filter = link.filter || 'new_fail';
+    return `<span class="tkt-cell-eval"><a class="action-link" href="#run=${link.run_id}&filter=${encodeURIComponent(filter)}" onclick="openEvalRunFromTicket(${link.run_id}, '${filter}'); return false;" title="${global.escAi(link.label||'')}">${global.escAi(link.label||('Run #'+link.run_id))}</a></span>`;
+  }
+
   function ticketRowOps(t, mine){
     const st = t.status;
-    let ops = `<button class="btn btn-sm btn-detail" onclick="showTicketDetail(${t.id})">详情</button>`;
-    const canNote = st !== 'rejected';
-    if(canNote && !mine && isReviewBizDecider()){
-      ops += ` <button class="btn btn-sm btn-detail" onclick="openTicketNoteEditor(${t.id})">编辑</button>`;
+    let ops = '<div class="tkt-ops-cell">';
+    const detailBtn = `<button class="btn btn-sm btn-detail" onclick="showTicketDetail(${t.id})">详情</button>`;
+
+    if(!mine && isReviewBizDecider()){
+      ops += detailBtn;
+      if(st !== 'rejected'){
+        ops += `<button class="btn btn-sm btn-detail" onclick="openTicketNoteEditor(${t.id})">编辑</button>`;
+      }
+      if(st === 'pending'){
+        ops += `<button class="btn btn-sm btn-reject-ticket" onclick="withdrawTicket(${t.id})">撤回</button>`;
+      }
+      ops += '</div>';
+      return ops;
     }
-    if(!mine && isReviewBizDecider() && st === 'pending'){
-      ops += ` <button class="btn btn-sm btn-reject-ticket" onclick="withdrawTicket(${t.id})">撤回</button>`;
-    }
+
     if(mine && canOperateTickets()){
       if(st === 'pending'){
-        ops += ` <button class="btn btn-sm btn-accept" onclick="ticketAccept(${t.id})">接单</button>`;
-        ops += ` <button class="btn btn-sm btn-reject-ticket" onclick="ticketReject(${t.id})">驳回</button>`;
+        ops += `<button class="btn btn-sm btn-accept" onclick="ticketAccept(${t.id})">接单</button>`;
+        ops += `<button class="btn btn-sm btn-reject-ticket" onclick="ticketReject(${t.id})">驳回</button>`;
       } else if(st === 'in_progress'){
-        ops += ` <button class="btn btn-sm btn-complete" onclick="ticketComplete(${t.id})">标记完成</button>`;
-        ops += ` <button class="btn btn-sm btn-reject-ticket" onclick="ticketReject(${t.id})">驳回</button>`;
-      } else if(st === 'awaiting_gate'){
-        ops += ` <button class="btn btn-sm btn-release" onclick="ticketRelease(${t.id})">门禁通过·确认上线</button>`;
+        ops += detailBtn;
+        ops += `<button class="btn btn-sm btn-complete" onclick="ticketComplete(${t.id})">标记完成·复跑门禁</button>`;
+      } else if(st === 'gate_running'){
+        ops += detailBtn;
+        ops += `<button class="btn btn-sm btn-detail" onclick="openEvalRunFromTicket(${t.linked_run_id||0}, 'all')">查看评测</button>`;
+      } else if(st === 'gate_failed' || st === 'legacy_retest_pending'){
+        ops += detailBtn;
+        ops += `<button class="btn btn-sm btn-complete" onclick="ticketRetest(${t.id})">重新提测</button>`;
+      } else if(st === 'gate_passed'){
+        ops += detailBtn;
+        ops += `<button class="btn btn-sm btn-release" onclick="ticketRelease(${t.id})">确认上线</button>`;
+      } else if(st === 'released' || st === 'rejected'){
+        ops += detailBtn;
+      } else {
+        ops += detailBtn;
       }
+    } else {
+      ops += detailBtn;
     }
+    ops += '</div>';
     return ops;
+  }
+
+  function ticketTableRow(t, mine){
+    const ops = ticketRowOps(t, mine);
+    const noteCell = formatTicketNotesCell(t);
+    const label = t.content_formatted || ticketDisplayText(t, mine);
+    const noLink = `<span class="action-link tkt-no-link" onclick="showTicketDetail(${t.id})">${global.escAi(t.ticket_no)}</span>`;
+    const evalCell = ticketEvalLinkCell(t);
+    const src = `<span class="tkt-cell-clip" title="${global.escAi(t.source||'')}">${global.escAi(t.source||'—')}</span>`;
+    const body = `<span class="tkt-cell-clip" title="${global.escAi(label)}">${global.escAi(label)}</span>`;
+    const stCell = ticketStatusBadge(t.status);
+    if(mine){
+      const hi = (global._highlightTicketId && global._highlightTicketId === t.id) ? ' class="tr-ticket-highlight"' : '';
+      return `<tr${hi}>
+        <td class="tkt-col-no">${noLink}</td>
+        <td class="tkt-col-body tkt-cell-clip">${body}</td>
+        <td class="tkt-col-eval">${evalCell}</td>
+        <td class="tkt-col-src">${src}</td>
+        <td class="tkt-col-st">${stCell}</td>
+        <td class="tkt-col-note">${noteCell}</td>
+        <td class="tkt-col-ops">${ops}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td class="tkt-col-no">${noLink}</td>
+      <td class="tkt-col-body tk-cell-biz tkt-cell-clip">${body}</td>
+      <td class="tkt-col-eval">${evalCell}</td>
+      <td class="tkt-col-src">${src}</td>
+      <td class="tkt-col-st">${stCell}</td>
+      <td class="tkt-col-assignee tkt-cell-clip">${global.escAi(assigneeLabel(t.assignee, t.assignee_label))}</td>
+      <td class="tkt-col-note">${noteCell}</td>
+      <td class="tkt-col-ops">${ops}</td>
+    </tr>`;
   }
 
   async function loadTicketsPage(mine, statusOverride){
@@ -815,7 +888,7 @@
     const filterEl = $(mine ? 'myTicketsStatusFilter' : 'ticketsStatusFilter');
     const hintEl  = $(mine ? 'myTicketsResultHint'  : 'ticketsResultHint');
     const status  = statusOverride !== undefined ? statusOverride : (filterEl ? filterEl.value : '');
-    const cols    = mine ? 6 : 7;
+    const cols    = mine ? 7 : 8;
     host.innerHTML = `<tr><td colspan="${cols}" class="muted" style="text-align:center;padding:20px">加载中…</td></tr>`;
     if(hintEl) hintEl.textContent = '';
     const params = { mine: mine ? 'true' : 'false' };
@@ -832,16 +905,7 @@
         host.innerHTML = `<tr><td colspan="${cols}" class="muted" style="text-align:center;padding:28px">暂无符合条件的工单</td></tr>`;
         return;
       }
-      host.innerHTML = items.map(t => {
-        const ops = ticketRowOps(t, mine);
-        const noteCell = formatTicketNotesCell(t);
-        const label = ticketDisplayText(t, mine);
-        const noLink = `<span class="action-link tkt-no-link" onclick="showTicketDetail(${t.id})">${global.escAi(t.ticket_no)}</span>`;
-        if(mine){
-          return `<tr><td>${noLink}</td><td>${global.escAi(label)}</td><td>${global.escAi(t.source)}</td><td>${ticketStatusBadge(t.status)}</td><td>${noteCell}</td><td>${ops}</td></tr>`;
-        }
-        return `<tr><td>${noLink}</td><td class="tk-cell-biz">${global.escAi(label)}</td><td>${global.escAi(t.source)}</td><td>${ticketStatusBadge(t.status)}</td><td>${global.escAi(assigneeLabel(t.assignee, t.assignee_label))}</td><td>${noteCell}</td><td>${ops}</td></tr>`;
-      }).join('');
+      host.innerHTML = items.map(t => ticketTableRow(t, mine)).join('');
     }catch(e){
       host.innerHTML = `<tr><td colspan="${cols}" style="color:#c53030">${global.escAi(e.message)}</td></tr>`;
     }
@@ -935,8 +999,57 @@
     }catch(e){ global.toast(e.message); }
   };
   global.ticketAccept = async id=>{ try{ await global.apiPost('/admin/tickets/'+id+'/accept',{}); global.toast('已接单'); loadTicketsPage(true);}catch(e){global.toast(e.message);} };
-  global.ticketComplete = async id=>{ try{ const r=await global.apiPost('/admin/tickets/'+id+'/complete',{}); global.toast(r.gate&&r.gate.passed?'门禁通过，请确认上线':'门禁未通过，已退回处理中'); loadTicketsPage(true);}catch(e){global.toast(e.message);} };
-  global.ticketRelease = async id=>{ if(!confirm('确认测试门禁已通过并上线？'))return; try{ await global.apiPost('/admin/tickets/'+id+'/release',{}); global.toast('已上线'); loadTicketsPage(true);}catch(e){global.toast(e.message);} };
+  global.ticketComplete = async id=>{
+    try{
+      const r = await global.apiPost('/admin/tickets/'+id+'/complete', {});
+      global.toast(r.gate_run ? '门禁跑批已启动，请在评测中心查看进度' : '已提交');
+      loadTicketsPage(true);
+    }catch(e){ global.toast(e.message); }
+  };
+  global.ticketRetest = async id=>{
+    try{
+      await global.apiPost('/admin/tickets/'+id+'/retest', {});
+      global.toast('重新提测已启动');
+      loadTicketsPage(true);
+    }catch(e){ global.toast(e.message); }
+  };
+  global.ticketRelease = async id=>{
+    if(!confirm('确认测试门禁已通过并上线？')) return;
+    try{
+      await global.apiPost('/admin/tickets/'+id+'/release',{});
+      global.toast('已上线');
+      loadTicketsPage(true);
+    }catch(e){ global.toast(e.message); }
+  };
+  global.openEvalRunFromTicket = function(runId, filter){
+    if(!runId) return;
+    global.switchAdminPage && global.switchAdminPage('eval');
+    _evalSelectedRunId = runId;
+    _evalCaseFilter = 'all';
+    if(typeof loadEvalPage === 'function') loadEvalPage();
+    setTimeout(()=>{ if(typeof selectEvalRun === 'function') selectEvalRun(runId); }, 300);
+  };
+
+  global.openTicketFromEval = function(ticketId){
+    if(!ticketId) return;
+    global._highlightTicketId = ticketId;
+    if(global.switchAdminPage) global.switchAdminPage('my-tickets');
+    setTimeout(()=>{
+      if(typeof loadTicketsPage === 'function') loadTicketsPage(true);
+    }, 200);
+  };
+
+  global.setEvalBaseline = async function(runId){
+    if(!runId) return;
+    if(!confirm('将此全量 run 设为 release 基线？后续门禁将与此 run 对比。')) return;
+    try{
+      await global.apiPost('/admin/eval/runs/'+runId+'/set-baseline', {});
+      global.toast('已设为基线');
+      if(_evalSelectedRunId === runId && typeof selectEvalRun === 'function'){
+        selectEvalRun(runId);
+      }
+    }catch(e){ global.toast(e.message); }
+  };
   // 移除发证/回收函数（新规格：薪资权岗位自带）
 
   // ── 员工花名册（Demo 种子数据，后续对接飞书组织架构）────────────
@@ -1193,6 +1306,92 @@
     return `${thu.getFullYear()}-W${String(weekNo).padStart(2,'0')}`;
   }
 
+  function _parseNewCaseIdsInput(raw){
+    return String(raw || '')
+      .split(/[\s,，;；]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  async function _loadEvalCaseIdsSet(force){
+    if(!force && global._evalCaseIdsSet) return global._evalCaseIdsSet;
+    const data = await global.apiGet('/admin/eval/case-ids');
+    global._evalCaseIdsSet = new Set(data.ids || []);
+    global._evalCaseIdsVersion = data.version || '';
+    return global._evalCaseIdsSet;
+  }
+
+  function _renderNewCaseIdValidation(ids, knownSet){
+    if(!ids.length){
+      return '<div class="muted" style="font-size:12px;margin-top:6px">尚未登记用例 id</div>';
+    }
+    return ids.map(id => {
+      const ok = knownSet.has(id);
+      const cls = ok ? 'tkt-eval-id-ok' : 'tkt-eval-id-bad';
+      const mark = ok ? '✓' : '✗';
+      const hint = ok ? '已在评测集中' : '不在当前评测集';
+      return `<div class="tkt-eval-id-row ${cls}"><span>${mark}</span><span>${global.escAi(id)}</span><span class="muted">${hint}</span></div>`;
+    }).join('');
+  }
+
+  function _bindTicketEvalSupplement(ticketId){
+    const draftEl = document.getElementById('ticketEvalYamlDraft');
+    const copyBtn = document.getElementById('ticketEvalDraftCopyBtn');
+    const inputEl = document.getElementById('ticketNewCaseIdsInput');
+    const valEl = document.getElementById('ticketNewCaseIdsValidation');
+    const saveBtn = document.getElementById('ticketNewCaseIdsSaveBtn');
+    if(!inputEl || !valEl) return;
+
+    let knownSet = global._evalCaseIdsSet || new Set();
+
+    async function refreshValidation(){
+      try{
+        knownSet = await _loadEvalCaseIdsSet(false);
+      }catch(e){
+        valEl.innerHTML = `<div class="rv-empty-error" style="font-size:12px">${global.escAi(e.message)}</div>`;
+        return;
+      }
+      const ids = _parseNewCaseIdsInput(inputEl.value);
+      valEl.innerHTML = _renderNewCaseIdValidation(ids, knownSet);
+    }
+
+    if(copyBtn && draftEl){
+      copyBtn.onclick = ()=>{
+        const text = draftEl.textContent || '';
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(()=> global.toast('草稿已复制')).catch(()=> global.toast('复制失败','danger'));
+        }else{
+          global.toast('浏览器不支持复制','danger');
+        }
+      };
+    }
+
+    inputEl.addEventListener('input', refreshValidation);
+    refreshValidation();
+
+    if(saveBtn){
+      saveBtn.onclick = async ()=>{
+        const ids = _parseNewCaseIdsInput(inputEl.value);
+        if(!ids.length){
+          global.toast('请填写至少一个用例 id','danger');
+          return;
+        }
+        const missing = ids.filter(id => !knownSet.has(id));
+        if(missing.length){
+          global.toast('以下 id 不在评测集中：'+missing.join(', '),'danger');
+          return;
+        }
+        try{
+          await global.apiPatch('/admin/tickets/'+ticketId+'/new-cases', { new_case_ids: ids });
+          global.toast('登记已保存');
+          global._evalCaseIdsSet = null;
+          loadTicketsPage(true);
+          showTicketDetail(ticketId);
+        }catch(e){ global.toast(e.message,'danger'); }
+      };
+    }
+  }
+
   function _renderTicketDetailBody(t){
     const link  = t.source_link || {};
     const f     = link.finding || {};
@@ -1290,6 +1489,29 @@
       </div>`);
     }
 
+    // ── 补充评测用例（处理中 · 技术超管唯一入口） ─────────────
+    if(!isBiz && canOperateTickets() && (t.status === 'in_progress' || t.status === 'gate_failed') && t.eval_case_yaml_draft){
+      rows.push(`<div class="td-section">
+        <div class="td-section-title">补充评测用例</div>
+        <div class="tkt-eval-supplement">
+          <div class="muted" style="font-size:12px;margin-bottom:6px">YAML 草稿（只读，expected 为空占位）</div>
+          <pre class="tkt-eval-draft" id="ticketEvalYamlDraft">${global.escAi(t.eval_case_yaml_draft)}</pre>
+          <p class="tkt-eval-hint">补全断言后追加至 <code>backend/eval/eval_set.yaml</code> 提交</p>
+          <div class="tkt-eval-supplement-actions">
+            <button type="button" class="btn btn-sm" id="ticketEvalDraftCopyBtn">复制草稿</button>
+          </div>
+          <div class="tkt-eval-ids-wrap">
+            <div class="muted" style="font-size:12px;margin-bottom:4px">登记 new_case_ids（逗号或换行分隔，以当前评测集为准校验）</div>
+            <textarea class="tkt-eval-ids-input" id="ticketNewCaseIdsInput" placeholder="e-tkt-012-1">${global.escAi((t.new_case_ids||[]).join('\n'))}</textarea>
+            <div id="ticketNewCaseIdsValidation"></div>
+          </div>
+          <div class="tkt-eval-supplement-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="ticketNewCaseIdsSaveBtn">保存登记</button>
+          </div>
+        </div>
+      </div>`);
+    }
+
     // ── 备注 ────────────────────────────────────────────────
     const notes = (t.notes||[]).map(n =>
       `<div class="ticket-note-item">
@@ -1374,6 +1596,9 @@
       }
 
       bodyEl.innerHTML = _renderTicketDetailBody(t);
+      if(t.eval_case_yaml_draft){
+        _bindTicketEvalSupplement(t.id);
+      }
 
       if(footEl){
         let foot = `<button class="btn" onclick="closeModal('ticketDetailModal')">关闭</button>`;
@@ -1455,6 +1680,22 @@
   let _evalDiff = null;
   let _evalCurrentRun = null;
   let _evalCaseFilter = 'all';
+  let _evalRunTypeFilter = '';
+  let _evalGateThreshold = 0.85;
+
+  function evalRunTypeTag(r, clickable){
+    const rt = r.run_type || (r.eval_profile==='layer1_only' ? 'l1_smoke' : 'full');
+    if(rt === 'gate'){
+      const tid = r.source_ticket_id;
+      const label = tid ? `#${String(tid).padStart(3,'0')}` : '';
+      if(clickable !== false && tid){
+        return `<a class="ev-run-tag gate action-link" href="#" onclick="openTicketFromEval(${tid}); return false;" title="跳转工单">门禁·${global.escAi(label)}</a>`;
+      }
+      return `<span class="ev-run-tag gate">门禁·${global.escAi(label)}</span>`;
+    }
+    if(rt === 'l1_smoke') return '<span class="ev-run-tag smoke">冒烟</span>';
+    return '<span class="ev-run-tag full">全量</span>';
+  }
 
   function evalStatusLabel(st){
     if(st==='running') return '<span class="ev-status-running">运行中</span>';
@@ -1483,12 +1724,18 @@
       return '<span class="ev-mark-na" style="font-size:11px">该层未运行</span>';
     }
     if(!row) return '<span class="ev-mark-na">—</span>';
+    if(row.pending || row.passed == null){
+      return '<span class="ev-mark-na" style="font-size:11px">待跑</span>';
+    }
     return row.passed ? '<span class="ev-mark-ok">✓</span>' : '<span class="ev-mark-err">✗</span>';
   }
 
   function evalL3Score(row){
     if(_evalRunProfile === 'layer1_only'){
       return '<span class="ev-mark-na" style="font-size:11px">该层未运行</span>';
+    }
+    if(_evalRunProfile === 'gate' || (_evalCurrentRun && _evalCurrentRun.run_type==='gate')){
+      return '<span class="ev-mark-na" style="font-size:11px">未跑 · 门禁模式不含 judge</span>';
     }
     if(!row) return '<span class="ev-mark-na">—</span>';
     if(row.error && !row.scored) return '<span class="ev-mark-err" title="'+global.escAi(row.error)+'">!</span>';
@@ -1505,14 +1752,20 @@
   ];
 
   function evalRunGateDot(r){
+    if(r.status === 'running'){
+      return '<span class="ev-gate-dot running" title="跑批中"></span>';
+    }
     const st = r.gate_status || 'no_data';
     if(st === 'no_data'){
       return '<span class="ev-gate-dot na" title="无数据"></span>';
     }
-    if(r.gate_passed){
+    if(r.gate_verdict === 'pass' || r.gate_passed){
       return '<span class="ev-gate-dot pass" title="门禁通过"></span>';
     }
-    return '<span class="ev-gate-dot fail" title="门禁未过"></span>';
+    if(r.gate_verdict === 'fail' || r.gate_passed === false){
+      return '<span class="ev-gate-dot fail" title="门禁未过"></span>';
+    }
+    return '<span class="ev-gate-dot na" title="无数据"></span>';
   }
 
   function evalDefaultVersion(){
@@ -1559,7 +1812,10 @@
   }
 
   function evalCaseFailed(group){
-    return EVAL_TABLE_LAYERS.some(c=>group.layers[c.layer] && !group.layers[c.layer].passed);
+    return EVAL_TABLE_LAYERS.some(c=>{
+      const row = group.layers[c.layer];
+      return row && row.passed === false;
+    });
   }
 
   function evalCaseSortKey(group){
@@ -1567,6 +1823,25 @@
     const l3 = group.layers[3];
     const score = (l3 && l3.score!=null) ? l3.score : 99;
     return [failed, score, group.case_id];
+  }
+
+  function diffCategoryPill(cat, ticketId){
+    if(cat === 'no_baseline'){
+      return '<span class="ev-diff-pill ev-diff-nobaseline">无基线对比</span>';
+    }
+    if(cat === 'newly_added' && ticketId){
+      const label = '新增·工单#'+String(ticketId).padStart(3,'0');
+      return `<a class="ev-diff-pill ev-diff-new action-link" href="#" onclick="openTicketFromEval(${ticketId}); return false;" title="跳转工单">${global.escAi(label)}</a>`;
+    }
+    const map = {
+      new_fail: ['ev-diff-newfail', '新挂'],
+      fixed: ['ev-diff-fixed', '修复'],
+      newly_added: ['ev-diff-new', '新增'],
+      flaky: ['ev-diff-flaky', 'flaky'],
+      unchanged: ['ev-diff-unchanged', '—'],
+    };
+    const m = map[cat] || ['ev-diff-unchanged', cat||'—'];
+    return `<span class="ev-diff-pill ${m[0]}">${global.escAi(m[1])}</span>`;
   }
 
   function renderEvalCaseTable(items, diff){
@@ -1581,21 +1856,34 @@
     });
     const regSet = new Set((diff&&diff.regressed)||[]);
     const fixSet = new Set((diff&&diff.fixed)||[]);
+    const addSet = new Set((diff&&diff.newly_added)||[]);
+    const flakySet = new Set((diff&&diff.flaky)||[]);
+    const noBaseSet = new Set((diff&&diff.no_baseline)||[]);
+    const isGate = _evalRunProfile === 'gate' || (_evalCurrentRun && _evalCurrentRun.run_type==='gate');
+    const ticketId = _evalCurrentRun && _evalCurrentRun.source_ticket_id;
     let rows = grouped;
-    if(_evalCaseFilter==='regressed') rows = grouped.filter(g=>regSet.has(g.case_id));
+    if(_evalCaseFilter==='regressed' || _evalCaseFilter==='new_fail') rows = grouped.filter(g=>regSet.has(g.case_id));
     else if(_evalCaseFilter==='fixed') rows = grouped.filter(g=>fixSet.has(g.case_id));
+    else if(_evalCaseFilter==='newly_added' || _evalCaseFilter==='new') rows = grouped.filter(g=>addSet.has(g.case_id));
+    else if(_evalCaseFilter==='flaky') rows = grouped.filter(g=>flakySet.has(g.case_id));
+    else if(_evalCaseFilter==='no_baseline') rows = grouped.filter(g=>noBaseSet.has(g.case_id));
 
     if(!rows.length){
       return '<div class="rv-empty">暂无匹配的用例</div>';
     }
+    const catCol = isGate ? '<th>类别</th>' : '';
     return `<div class="table-wrap"><table class="sheet-table ev-case-table"><thead><tr>
-      <th>case</th><th>query</th><th>意图</th>${EVAL_TABLE_LAYERS.map(c=>`<th>${c.header}</th>`).join('')}<th>flaky</th>
+      <th>case</th><th>query</th><th>意图</th>${catCol}${EVAL_TABLE_LAYERS.map(c=>`<th>${c.header}</th>`).join('')}<th>flaky</th>
     </tr></thead><tbody>${rows.map(g=>{
+      const l1 = g.layers[1];
+      const cat = l1 && l1.diff_category;
       const tag = regSet.has(g.case_id)?'<span class="ev-regressed-tag">新挂</span>':'';
+      const catCell = isGate ? `<td>${diffCategoryPill(cat, ticketId)}</td>` : '';
       return `<tr class="ev-case-row" data-case-id="${global.escAi(g.case_id)}">
         <td>${tag}${global.escAi(g.case_id)}</td>
         <td title="${global.escAi(g.query||'')}">${global.escAi(evalTruncate(g.query,30))}</td>
         <td>${global.escAi(g.intent||'—')}</td>
+        ${catCell}
         ${EVAL_TABLE_LAYERS.map(c=>`<td>${c.cell(g)}</td>`).join('')}
         <td>${g.layers[1]&&g.layers[1].flaky?'<span class="ev-flaky-tag">flaky</span>':''}</td>
       </tr>`;
@@ -1626,62 +1914,127 @@
 
   function renderEvalReport(r, diff, metrics){
     metrics = metrics || {};
-    const layer1Only = _evalRunProfile === 'layer1_only' || metrics.eval_profile === 'layer1_only';
+    const runType = r.run_type || (metrics.eval_profile==='layer1_only' ? 'l1_smoke' : 'full');
+    const layer1Only = runType === 'l1_smoke' || metrics.eval_profile === 'layer1_only';
+    const isGate = runType === 'gate' || metrics.eval_profile === 'gate';
     const assertion = metrics.assertion || {};
     const cal = metrics.judge_calibration || {};
     const deltaL3 = metrics.delta_grader_avg;
-    const deltaTxt = (!layer1Only && deltaL3!=null) ? (deltaL3>=0?` ↑${deltaL3.toFixed(2)}`:` ↓${Math.abs(deltaL3).toFixed(2)}`) : '';
-    let gateBadge;
-    if(metrics.gate_status === 'no_data'){
-      gateBadge = '<span class="ev-gate ev-gate-na">无数据</span>';
-    } else if(metrics.gate_passed){
-      gateBadge = '<span class="ev-gate ev-gate-pass">门禁通过</span>';
-    } else {
-      gateBadge = '<span class="ev-gate ev-gate-fail">门禁未过</span>';
-    }
-    const l1pct = metrics.planner_accuracy!=null ? (metrics.planner_accuracy*100).toFixed(1)+'%' : '';
-    const plannerBadge = l1pct ? `<span class="muted">planner ${l1pct}</span>` : '';
-    const weakest = metrics.weakest_link || '无失败';
-    const calN = cal.sample_count || 0;
-    let calVal;
-    let calWarnFlag = false;
-    if(layer1Only){
-      calVal = '该层未运行';
-    } else if(calN >= 20 && cal.agreement_rate != null){
-      calVal = Number(cal.agreement_rate).toFixed(2);
-      calWarnFlag = !!cal.warn;
-    } else {
-      calVal = `样本不足（${calN}/20）`;
-    }
-    const calWarn = (!layer1Only && calWarnFlag) ? '<div class="ev-cal-banner">judge 分数仅供参考，需重新校准 rubric（与人工一致率 &lt; 0.8）</div>' : '';
-    const flakyN = metrics.flaky_count || 0;
+    const deltaTxt = (!layer1Only && !isGate && deltaL3!=null) ? (deltaL3>=0?` ↑${deltaL3.toFixed(2)}`:` ↓${Math.abs(deltaL3).toFixed(2)}`) : '';
+    const thresholdPct = ((metrics.gate_assert_threshold != null ? metrics.gate_assert_threshold : (metrics.gate_l1_threshold != null ? metrics.gate_l1_threshold : _evalGateThreshold))*100).toFixed(0);
     const metaDur = r.duration_ms != null ? `${r.duration_ms}ms · ` : '';
-    const graderScore = layer1Only ? '该层未运行' : (metrics.grader_avg!=null ? Number(metrics.grader_avg).toFixed(2) : '—');
-    const metricsHtml = `
+    let metricsHtml = '';
+    let gateBanner = '';
+    let headTitleExtra = '';
+    let reportActionsExtra = '';
+    let filterBtns = `
+            <button class="btn btn-sm${_evalCaseFilter==='all'?' active':''}" onclick="setEvalCaseFilter('all')">全部</button>
+            <button class="btn btn-sm${_evalCaseFilter==='regressed'||_evalCaseFilter==='new_fail'?' active':''}" onclick="setEvalCaseFilter('new_fail')">新挂</button>
+            <button class="btn btn-sm${_evalCaseFilter==='fixed'?' active':''}" onclick="setEvalCaseFilter('fixed')">修复</button>`;
+
+    if(isGate){
+      const gd = metrics.gate_diff || {};
+      const hasBaseline = metrics.has_baseline != null ? metrics.has_baseline : !!r.baseline_run_id;
+      const isRunning = r.status === 'running';
+      const prog = metrics.progress || {};
+      const doneCount = prog.completed != null ? prog.completed : (_evalCases ? new Set(_evalCases.filter(c=>c.layer===1 && !c.pending).map(c=>c.case_id)).size : 0);
+      const totalCount = prog.total || r.total_cases || doneCount;
+      const runningSub = '(进行中)';
+      if(isRunning){
+        gateBanner = `<div class="ev-gate-banner running">门禁跑批进行中 · 已完成 ${doneCount}/${totalCount}</div>`;
+      } else {
+        const pass = r.gate_verdict === 'pass' || metrics.gate_verdict === 'pass';
+        const verdictDetail = metrics.gate_verdict_detail || r.gate_verdict_detail || {};
+        const reasons = verdictDetail.reasons || [];
+        const passSub = `新挂=0 且 工单新增用例全过 且 断言通过率≥${thresholdPct}%`;
+        const failSub = reasons.length ? ('未通过原因：'+reasons.join('；')) : '未通过';
+        gateBanner = `<div class="ev-gate-banner ${pass?'pass':'fail'}">${pass?'门禁通过':'门禁未通过'}
+          <div class="ev-gate-banner-sub">${pass ? passSub : failSub}</div></div>`;
+      }
+      const baselineLine = hasBaseline
+        ? `基线 Run #${r.baseline_run_id}（上次 release）· 评测集 ${global.escAi(r.eval_set_version||metrics.eval_set_version||'—')}`
+        : '无基线（首次门禁）· 非工单声明用例显示「无基线对比」';
+      const newFailVal = hasBaseline ? String(gd.new_fail||0) : '—';
+      const fixedVal = hasBaseline ? String(gd.fixed||0) : '—';
+      const newAddedVal = String(gd.newly_added||0);
+      const flakyVal = String(gd.flaky||0);
+      const metricSuffix = isRunning ? runningSub : '';
+      metricsHtml = `
+      ${gateBanner}
+      <div class="muted" style="margin-bottom:10px;font-size:12px">${baselineLine}</div>
       <div class="rv-metrics">
+        ${renderEvalMetric('新挂', isRunning && !hasBaseline ? '—' : newFailVal, (hasBaseline?(metricSuffix||'相对基线新失败'):''), !isRunning && hasBaseline && (gd.new_fail||0)>0)}
+        ${renderEvalMetric('修复', isRunning && !hasBaseline ? '—' : fixedVal, hasBaseline?(metricSuffix||'相对基线已修复'):'', false)}
+        ${renderEvalMetric('本次新增', newAddedVal, metricSuffix||'工单声明用例命中数', false)}
+        ${renderEvalMetric('flaky', flakyVal, metricSuffix||'多数表决·不计红灯', false)}
+      </div>`;
+      const noBaseList = (diff && diff.no_baseline) || [];
+      filterBtns += `
+            <button class="btn btn-sm${_evalCaseFilter==='newly_added'?' active':''}" onclick="setEvalCaseFilter('newly_added')">新增</button>
+            <button class="btn btn-sm${_evalCaseFilter==='flaky'?' active':''}" onclick="setEvalCaseFilter('flaky')">flaky</button>`;
+      if(noBaseList.length){
+        filterBtns += `
+            <button class="btn btn-sm${_evalCaseFilter==='no_baseline'?' active':''}" onclick="setEvalCaseFilter('no_baseline')">无基线</button>`;
+      }
+      headTitleExtra = evalRunTypeTag(r);
+    } else if(layer1Only){
+      const l1pct = metrics.planner_accuracy!=null ? (metrics.planner_accuracy*100).toFixed(1)+'%' : '—';
+      metricsHtml = `<div class="rv-metrics">
+        ${renderEvalMetric('assertion', `${assertion.passed??'—'}/${assertion.total??'—'}`, '代码断言通过 / 总数')}
+        ${renderEvalMetric('planner 准确率', l1pct, 'Layer1 意图判定')}
+      </div>`;
+      headTitleExtra = evalRunTypeTag(r);
+    } else {
+      let gateBadge;
+      if(metrics.gate_status === 'no_data'){
+        gateBadge = '<span class="ev-gate ev-gate-na">无数据</span>';
+      } else if(metrics.gate_passed){
+        gateBadge = '<span class="ev-gate ev-gate-pass">门禁通过</span>';
+      } else {
+        gateBadge = '<span class="ev-gate ev-gate-fail">门禁未过</span>';
+      }
+      const l1pct = metrics.planner_accuracy!=null ? (metrics.planner_accuracy*100).toFixed(1)+'%' : '';
+      const plannerBadge = l1pct ? `<span class="muted">planner ${l1pct}</span>` : '';
+      const weakest = metrics.weakest_link || '无失败';
+      const calN = cal.sample_count || 0;
+      let calVal;
+      let calWarnFlag = false;
+      if(calN >= 20 && cal.agreement_rate != null){
+        calVal = Number(cal.agreement_rate).toFixed(2);
+        calWarnFlag = !!cal.warn;
+      } else {
+        calVal = `样本不足（${calN}/20）`;
+      }
+      const calWarn = calWarnFlag ? '<div class="ev-cal-banner">judge 分数仅供参考，需重新校准 rubric（与人工一致率 &lt; 0.8）</div>' : '';
+      const graderScore = metrics.grader_avg!=null ? Number(metrics.grader_avg).toFixed(2) : '—';
+      metricsHtml = `${calWarn}<div class="rv-metrics">
         ${renderEvalMetric('assertion', `${assertion.passed??'—'}/${assertion.total??'—'}`, '代码断言通过 / 总数')}
         ${renderEvalMetric('grader 均分', graderScore+deltaTxt, '模型裁判 overall 平均（1-5）')}
         ${renderEvalMetric('grader 校准', calVal, '与人工评分一致率（&lt;0.8 预警）', calWarnFlag)}
         ${renderEvalMetric('最弱环节', global.escAi(weakest), '失败聚类最大簇')}
       </div>`;
+      headTitleExtra = `${gateBadge} ${plannerBadge}<span class="ev-flaky-tag">flaky ${metrics.flaky_count||0} 例</span>`;
+      if(canOperateTickets() && r.status==='done'){
+        reportActionsExtra = `<button class="btn btn-sm btn-primary" onclick="setEvalBaseline(${r.id})">设为基线</button>`;
+      }
+    }
+
     const head = `
       <div class="rv-report">
         <div class="rv-report-head">
           <div>
-            <div class="rv-report-title">Run #${r.id} 报告 · ${global.escAi(r.version||'')} ${gateBadge} ${plannerBadge}<span class="ev-flaky-tag">flaky ${flakyN} 例</span></div>
+            <div class="rv-report-title">Run #${r.id} 报告 · ${global.escAi(r.version||'')} ${headTitleExtra}</div>
             <div class="rv-report-meta">${evalStatusLabel(r.status)} · ${global.escAi((r.started_at||'').replace('T',' ').slice(0,16))} · ${metaDur}${r.total_cases||0} 条</div>
           </div>
           <div class="ev-report-actions">
+            ${reportActionsExtra}
             <button class="btn btn-sm" onclick="openEvalCoverageModal()">覆盖矩阵</button>
           </div>
         </div>
-        ${calWarn}${metricsHtml}
+        ${metricsHtml}
         <div class="ev-case-toolbar">
           <div class="rv-section-title" style="margin:0;border:0;padding:0">用例明细（失败优先）· 点行打开详情</div>
-          <div class="ev-case-filters">
-            <button class="btn btn-sm${_evalCaseFilter==='all'?' active':''}" onclick="setEvalCaseFilter('all')">全部</button>
-            <button class="btn btn-sm${_evalCaseFilter==='regressed'?' active':''}" onclick="setEvalCaseFilter('regressed')">新挂</button>
-            <button class="btn btn-sm${_evalCaseFilter==='fixed'?' active':''}" onclick="setEvalCaseFilter('fixed')">修复</button>
+          <div class="ev-case-filters">${filterBtns}
           </div>
         </div>
         <div id="evalCaseTableHost">${renderEvalCaseTable(_evalCases, diff)}</div>
@@ -1691,6 +2044,9 @@
 
   global.setEvalCaseFilter = function(filter){
     _evalCaseFilter = filter;
+    if(_evalCurrentRun){
+      location.hash = '#run='+_evalCurrentRun.id+'&filter='+encodeURIComponent(filter);
+    }
     const host = $('evalCaseTableHost');
     if(host && _evalCurrentRun) host.innerHTML = renderEvalCaseTable(_evalCases, _evalDiff);
     bindEvalCaseTableClicks();
@@ -1950,8 +2306,19 @@
       if(canOperateTickets()){
         try{ await global.apiPost('/admin/eval/runs/cleanup-garbage', {}); }catch(_e){ /* ignore */ }
       }
-      const data = await global.apiGet('/admin/eval/runs?limit=20');
+      try{
+        const cfg = await global.apiGet('/admin/eval/config');
+        if(cfg && cfg.gate_assert_threshold != null) _evalGateThreshold = cfg.gate_assert_threshold;
+        else if(cfg && cfg.gate_l1_threshold != null) _evalGateThreshold = cfg.gate_l1_threshold;
+      }catch(_e){ /* ignore */ }
+      const q = _evalRunTypeFilter ? ('&run_type='+encodeURIComponent(_evalRunTypeFilter)) : '';
+      const data = await global.apiGet('/admin/eval/runs?limit=20'+q);
       const items = data.items||[];
+      const chips = $('evalRunTypeChips');
+      if(chips){
+        const mk = (val, label)=>`<button class="btn btn-sm ev-type-chip${(_evalRunTypeFilter===val)?' active':''}" onclick="setEvalRunTypeFilter('${val}')">${label}</button>`;
+        chips.innerHTML = mk('', '全部') + mk('full', '全量') + mk('gate', '门禁') + mk('l1_smoke', '冒烟');
+      }
       if(!items.length){
         listHost.innerHTML = '<div class="rv-empty">暂无跑批记录</div>';
         if(detailHost) detailHost.innerHTML = '<div class="rv-empty">技术超管可点击上方按钮触发评测</div>';
@@ -1965,7 +2332,7 @@
         return `<div class="ev-run-item${active}" onclick="selectEvalRun(${r.id})">
           <div class="ev-run-head">
             <span class="ev-run-id">#${r.id}</span>
-            ${demoTag}<span class="ev-run-ver">${global.escAi(r.version||'—')}</span>
+            ${evalRunTypeTag(r)}${demoTag}<span class="ev-run-ver">${global.escAi(r.version||'—')}</span>
             ${evalStatusBadge(r.status)}
           </div>
           <div class="ev-run-meta">${evalRunGateDot(r)}${plannerTxt?`<span class="ev-run-meta-planner">${plannerTxt.trim()}</span>`:''}<span class="ev-run-time">${timeTxt}</span></div>
@@ -1985,6 +2352,10 @@
     }
   }
   global.loadEvalPage = loadEvalPage;
+  global.setEvalRunTypeFilter = function(val){
+    _evalRunTypeFilter = val || '';
+    loadEvalPage();
+  };
 
   function startEvalPoll(runId){
     if(_evalPollTimer) clearInterval(_evalPollTimer);
@@ -1992,6 +2363,9 @@
     if(statusEl) statusEl.textContent = '跑批进行中…';
     _evalPollTimer = setInterval(async ()=>{
       try{
+        if(_evalSelectedRunId === runId){
+          await selectEvalRun(runId, {preserveFilter: true});
+        }
         const d = await global.apiGet('/admin/eval/runs/'+runId, {include_cases:false});
         if(d.status!=='running'){
           clearInterval(_evalPollTimer);
@@ -2003,7 +2377,11 @@
     }, 4000);
   }
 
-  global.selectEvalRun = async function(runId){
+  global.selectEvalRun = async function(runId, opts){
+    opts = opts || {};
+    if(!opts.preserveFilter){
+      _evalCaseFilter = 'all';
+    }
     _evalSelectedRunId = runId;
     const detailHost = $('evalRunDetail');
     if(!detailHost) return;
@@ -2021,8 +2399,7 @@
       _evalMetrics = casesRes.metrics||{};
       _evalDiff = diffRes;
       _evalCurrentRun = r;
-      _evalRunProfile = r.eval_profile || 'full';
-      _evalCaseFilter = 'all';
+      _evalRunProfile = r.eval_profile || (r.run_type==='l1_smoke' ? 'layer1_only' : (r.run_type==='gate' ? 'gate' : 'full'));
       detailHost.innerHTML = renderEvalReport(r, diffRes, _evalMetrics);
       bindEvalCaseTableClicks();
     }catch(e){
@@ -2030,19 +2407,24 @@
     }
   };
 
-  let _evalTriggerOnlyLayer1 = false;
+  let _evalTriggerRunType = 'full';
 
-  global.triggerEvalRun = function(onlyLayer1){
+  global.triggerEvalRun = function(runType){
     if(!canOperateTickets()){ global.toast('仅技术超管可触发评测'); return; }
-    _evalTriggerOnlyLayer1 = !!onlyLayer1;
+    if(runType == null || runType === ''){
+      const sel = $('evalRunTypeSelect');
+      runType = sel ? sel.value : 'full';
+    }
+    _evalTriggerRunType = runType || 'full';
     const def = evalDefaultVersion();
     const titleEl = $('evalTriggerModalTitle');
     const hintEl = $('evalTriggerVersionHint');
     const submitBtn = $('evalTriggerSubmitBtn');
     const input = $('evalTriggerVersion');
-    if(titleEl) titleEl.textContent = onlyLayer1 ? '快速检查 · 仅意图层' : '开始评测';
+    const isSmoke = _evalTriggerRunType === 'l1_smoke';
+    if(titleEl) titleEl.textContent = isSmoke ? 'L1 冒烟' : '全量评测';
     if(hintEl) hintEl.textContent = '留空则用 '+def+'，可填 v1.4.0 等';
-    if(submitBtn) submitBtn.textContent = onlyLayer1 ? '开始快速检查' : '开始评测';
+    if(submitBtn) submitBtn.textContent = isSmoke ? '开始 L1 冒烟' : '开始全量评测';
     if(input){
       input.value = def;
       if(!input._evalEnterBound){
@@ -2064,7 +2446,7 @@
     const statusEl = $('evalTriggerStatus');
     if(statusEl) statusEl.textContent = '正在启动…';
     try{
-      const q = 'only_layer1='+(_evalTriggerOnlyLayer1?'true':'false')+'&version='+encodeURIComponent(ver);
+      const q = 'run_type='+encodeURIComponent(_evalTriggerRunType)+'&version='+encodeURIComponent(ver);
       const data = await global.apiPost('/admin/eval/runs?'+q, {});
       global.toast(data.message||'已启动');
       _evalSelectedRunId = data.run_id;

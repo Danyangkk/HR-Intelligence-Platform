@@ -75,6 +75,8 @@ class AppSettings(BaseSettings):
     feishu_bitable_change_table_id: str = ""
     feishu_sync_demo_fallback: bool = True
     jwt_expire_minutes: int = 1440
+    gate_assert_threshold: float | None = None
+    gate_l1_threshold: float | None = None  # legacy alias
 
 
 _manager = ConfigManager[AppSettings]()

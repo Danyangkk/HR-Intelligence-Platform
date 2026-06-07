@@ -252,3 +252,15 @@
     - {intent: trend, entities: {time_range: 2025-11}}
   expected:
     intent: trend
+
+# ===== 工单 #016 · 年终奖制度 (policy) =====
+- id: e-tkt-016-1
+  query: "年终奖怎么算"
+  layer: [1, 2, 3]
+  expected:
+    intent: policy
+    expected_doc_chunks: ["年终奖核算管理办法"]
+    answer_points:
+      - "与绩效/考核结果挂钩"
+      - "发放时间或核算周期"
+    forbid: ["编造不存在的制度条文"]

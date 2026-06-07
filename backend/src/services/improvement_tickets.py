@@ -10,6 +10,8 @@ from typing import Any
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.eval.case_draft import build_eval_case_yaml_draft
+from src.eval.loader import load_eval_set
 from src.models import ImprovementTicket, User
 from src.services.review_finding_validator import format_draft_changes
 from src.services.rbac import (
@@ -23,7 +25,48 @@ from src.services.rbac import (
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
-TICKET_STATUSES = frozenset({"pending", "in_progress", "awaiting_gate", "released", "rejected", "deferred"})
+TICKET_STATUSES = frozenset({
+    "pending",
+    "in_progress",
+    "gate_running",
+    "gate_failed",
+    "gate_passed",
+    "released",
+    "rejected",
+    "deferred",
+    "awaiting_gate",  # legacy DB status
+})
+
+# 显式状态转移白名单（raw DB status → 允许的目标 status）
+TICKET_TRANSITIONS: dict[str, frozenset[str]] = {
+    "pending": frozenset({"in_progress", "rejected"}),
+    "in_progress": frozenset({"gate_running"}),
+    "gate_running": frozenset({"gate_failed", "gate_passed"}),
+    "gate_failed": frozenset({"gate_running"}),
+    "gate_passed": frozenset({"released", "gate_running"}),
+    "awaiting_gate": frozenset({"gate_running"}),  # legacy 旧流程重新提测
+    "released": frozenset(),
+    "rejected": frozenset(),
+    "deferred": frozenset(),
+}
+
+
+class TicketTransitionError(ValueError):
+    """Illegal ticket status transition."""
+
+
+def _assert_ticket_transition(row: ImprovementTicket, to_status: str) -> None:
+    from_st = (row.status or "").strip()
+    allowed = TICKET_TRANSITIONS.get(from_st, frozenset())
+    if to_status not in allowed:
+        hint = "、".join(sorted(allowed)) if allowed else "无"
+        raise TicketTransitionError(f"非法状态转移：{from_st} → {to_status}（允许：{hint}）")
+
+
+def _apply_ticket_status(row: ImprovementTicket, to_status: str) -> None:
+    _assert_ticket_transition(row, to_status)
+    row.status = to_status
+    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _format_ticket_source(row: ImprovementTicket) -> str:
@@ -46,6 +89,23 @@ def _assignee_label(assignee: str | None) -> str:
     return assignee or "—"
 
 
+def _is_legacy_gate_ticket(row: ImprovementTicket) -> bool:
+    """Old pytest-gate era tickets: awaiting_gate without eval run linkage."""
+    if row.linked_run_id:
+        return False
+    st = (row.status or "").strip()
+    return st in {"awaiting_gate", "gate_passed"}
+
+
+def _normalize_ticket_status(row: ImprovementTicket) -> str:
+    st = (row.status or "").strip()
+    if _is_legacy_gate_ticket(row):
+        return "legacy_retest_pending"
+    if st == "awaiting_gate" and row.linked_run_id:
+        return "gate_passed"
+    return st
+
+
 def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dict[str, Any]:
     source_link = _resolve_source_link(row, role=role)
     role_n = normalize_role(role) if role else BIZ_SUPER_ADMIN
@@ -59,6 +119,18 @@ def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dic
             parts.append(f"测试：{row.test_requirement}")
         tech_body = " · ".join(parts) if parts else row.content_biz
     display_body = tech_body if role_n == TECH_SUPER_ADMIN else row.content_biz
+    st = _normalize_ticket_status(row)
+    eval_link = _ticket_eval_link(row)
+    source_link = source_link or {}
+    eval_yaml_draft = None
+    if role_n == TECH_SUPER_ADMIN and st in {"in_progress", "gate_failed"}:
+        eval_yaml_draft = build_eval_case_yaml_draft(
+            ticket_id=row.id,
+            draft_changes=draft,
+            test_requirement=row.test_requirement,
+            content_biz=row.content_biz,
+            source_phenomenon=(source_link.get("finding") or {}).get("phenomenon"),
+        )
     return {
         "id": row.id,
         "ticket_no": f"#{row.id:03d}",
@@ -66,11 +138,18 @@ def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dic
         "content_biz": row.content_biz,
         "draft_changes": draft,
         "display_body": display_body,
+        "content_formatted": _format_ticket_content(row),
         "content": row.content_biz,
         "source": _format_ticket_source(row),
-        "status": row.status,
+        "status": st,
+        "raw_status": row.status,
+        "is_legacy_gate": _is_legacy_gate_ticket(row),
         "change_target": row.change_target,
         "test_requirement": row.test_requirement,
+        "new_case_ids": list(row.new_case_ids or []),
+        "eval_case_yaml_draft": eval_yaml_draft,
+        "linked_run_id": row.linked_run_id,
+        "eval_link": eval_link,
         "evidence_run_ids": (row.evidence_run_ids or "").split(",") if row.evidence_run_ids else [],
         "reject_reason": row.reject_reason,
         "gate_result": row.gate_result,
@@ -85,6 +164,148 @@ def _serialize_ticket(row: ImprovementTicket, *, role: str | None = None) -> dic
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "notes": list(TICKET_NOTES.get(row.id, [])),
     }
+
+
+def _format_ticket_content(row: ImprovementTicket) -> str:
+    parts: list[str] = []
+    if row.change_target:
+        parts.append(f"改动：{row.change_target}")
+    ids = list(row.new_case_ids or [])
+    if ids:
+        intent_hint = row.test_requirement or "用例"
+        parts.append(f"用例：{intent_hint} +{len(ids)}（{', '.join(ids)}）")
+    elif row.test_requirement:
+        parts.append(f"用例：{row.test_requirement}")
+    return " · ".join(parts) if parts else row.content_biz
+
+
+def _ticket_eval_summary(row: ImprovementTicket) -> tuple[str, str]:
+    """Return (label_suffix, filter) for eval center deep link."""
+    rid = row.linked_run_id
+    if row.status == "gate_running":
+        return ("跑批中", "all")
+    if row.status == "gate_failed":
+        return ("未通过", "all")
+    if row.status in {"gate_passed", "released"}:
+        return ("全绿" if row.status == "gate_passed" else "已上线", "all")
+    summary = (row.gate_result or "").upper()
+    if "FAIL" in summary:
+        return ("未通过", "all")
+    if "PASS" in summary or "RELEASED" in summary:
+        return ("全绿", "all")
+    return ("查看", "all")
+
+
+def _ticket_eval_link(row: ImprovementTicket) -> dict[str, Any] | None:
+    if not row.linked_run_id:
+        return None
+    suffix, filter_key = _ticket_eval_summary(row)
+    return {
+        "run_id": row.linked_run_id,
+        "label": f"Run #{row.linked_run_id} · {suffix}",
+        "filter": filter_key,
+    }
+
+
+def _validate_new_case_ids(new_case_ids: list[str]) -> None:
+    if not new_case_ids:
+        raise ValueError("工单未声明评测用例，请先将用例入集并登记")
+    known = {c["id"] for c in load_eval_set()}
+    missing = [cid for cid in new_case_ids if cid not in known]
+    if missing:
+        raise ValueError(f"以下用例 id 不在评测集中：{', '.join(missing)}")
+
+
+async def trigger_gate_run(
+    db: AsyncSession,
+    ticket_id: int,
+    *,
+    new_case_ids: list[str] | None = None,
+    triggered_by: str = TECH_SUPER_ADMIN,
+) -> dict[str, Any]:
+    """Start gate eval run for ticket (sync setup; batch runs in background)."""
+    from src.eval.baseline import get_released_baseline_run_id
+    from src.eval.runner import create_eval_run
+
+    row = await db.get(ImprovementTicket, ticket_id)
+    if not row:
+        raise LookupError("ticket not found")
+    if row.status == "gate_running":
+        raise ValueError("门禁跑批进行中，请等待完成")
+
+    case_ids = list(new_case_ids or row.new_case_ids or [])
+    _validate_new_case_ids(case_ids)
+    row.new_case_ids = case_ids
+
+    baseline_run_id = await get_released_baseline_run_id(db)
+    _apply_ticket_status(row, "gate_running")
+    await db.commit()
+
+    run_id = await create_eval_run(
+        db,
+        version=f"gate-工单#{row.id:03d}",
+        trigger="ticket_gate",
+        triggered_by=triggered_by,
+        run_type="gate",
+        source_ticket_id=row.id,
+        baseline_run_id=baseline_run_id,
+    )
+    row.linked_run_id = run_id
+    await db.commit()
+    return {"ticket_id": row.id, "run_id": run_id, "new_case_ids": case_ids}
+
+
+async def update_ticket_new_case_ids(
+    db: AsyncSession,
+    ticket_id: int,
+    new_case_ids: list[str],
+) -> dict[str, Any]:
+    """Register eval case ids on ticket (DB only — eval_set.yaml is edited via Git)."""
+    row = await db.get(ImprovementTicket, ticket_id)
+    if not row:
+        raise LookupError("ticket not found")
+    if row.status not in {"in_progress", "gate_failed"}:
+        raise ValueError("仅处理中或门禁失败工单可登记评测用例")
+    ids = list(dict.fromkeys(x.strip() for x in new_case_ids if x and str(x).strip()))
+    if ids:
+        known = {c["id"] for c in load_eval_set()}
+        missing = [cid for cid in ids if cid not in known]
+        if missing:
+            raise ValueError(f"以下用例 id 不在评测集中：{', '.join(missing)}")
+    row.new_case_ids = ids or None
+    await db.commit()
+    return _serialize_ticket(row, role=TECH_SUPER_ADMIN)
+
+
+async def mark_ticket_done(
+    db: AsyncSession,
+    ticket_id: int,
+    *,
+    new_case_ids: list[str] | None = None,
+    triggered_by: str = TECH_SUPER_ADMIN,
+) -> dict[str, Any]:
+    """标记完成 · 复跑门禁（异步 gate run）。"""
+    payload = await trigger_gate_run(
+        db, ticket_id, new_case_ids=new_case_ids, triggered_by=triggered_by
+    )
+    row = await db.get(ImprovementTicket, ticket_id)
+    return {**_serialize_ticket(row), "gate_run": payload}
+
+
+async def retest_ticket_gate(
+    db: AsyncSession,
+    ticket_id: int,
+    *,
+    triggered_by: str = TECH_SUPER_ADMIN,
+) -> dict[str, Any]:
+    row = await db.get(ImprovementTicket, ticket_id)
+    if not row:
+        raise LookupError("ticket not found")
+    if row.status == "gate_failed":
+        return await mark_ticket_done(db, ticket_id, triggered_by=triggered_by)
+    if _is_legacy_gate_ticket(row) or row.status == "awaiting_gate":
+        return await mark_ticket_done(db, ticket_id, triggered_by=triggered_by)
+    raise ValueError("only gate_failed or legacy awaiting tickets can retest")
 
 
 def _resolve_source_link(row: ImprovementTicket, *, role: str | None = None) -> dict[str, Any] | None:
@@ -162,13 +383,20 @@ async def list_tickets(
 
     query = select(ImprovementTicket)
     if status:
-        query = query.where(ImprovementTicket.status == status.strip())
+        st = status.strip()
+        if st in {"legacy_retest_pending", "awaiting_gate"}:
+            query = query.where(
+                ImprovementTicket.linked_run_id.is_(None),
+                ImprovementTicket.status.in_(("awaiting_gate", "gate_passed")),
+            )
+        else:
+            query = query.where(ImprovementTicket.status == st)
     if mine_only:
         query = query.where(ImprovementTicket.assignee == TECH_SUPER_ADMIN)
 
     total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
     offset = max(page - 1, 0) * page_size
-    result = await db.execute(query.order_by(desc(ImprovementTicket.updated_at)).offset(offset).limit(page_size))
+    result = await db.execute(query.order_by(desc(ImprovementTicket.created_at)).offset(offset).limit(page_size))
     return {
         "items": [_serialize_ticket(row, role=role) for row in result.scalars().all()],
         "total": total,
@@ -269,35 +497,10 @@ async def accept_ticket(db: AsyncSession, ticket_id: int) -> dict[str, Any]:
     if not row:
         raise LookupError("ticket not found")
     if row.status != "pending":
-        raise ValueError("only pending tickets can be accepted")
-    row.status = "in_progress"
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        raise TicketTransitionError("仅待处理工单可接单")
+    _apply_ticket_status(row, "in_progress")
     await db.commit()
     return _serialize_ticket(row)
-
-
-async def mark_ticket_done(db: AsyncSession, ticket_id: int) -> dict[str, Any]:
-    """技术超管点"我已完成改动 + 已加测试用例" → 自动跑门禁：
-       绿 → 进 awaiting_gate 等二次确认；红 → 退回 in_progress 并附失败用例摘要。
-    """
-    row = await db.get(ImprovementTicket, ticket_id)
-    if not row:
-        raise LookupError("ticket not found")
-    if row.status != "in_progress":
-        raise ValueError("only in_progress tickets can be marked done")
-    row.status = "awaiting_gate"
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    await db.commit()
-    gate = run_router_gate()
-    if gate.get("passed"):
-        row.gate_result = _format_gate_summary(gate, passed=True)
-    else:
-        # 门禁红 → 自动退回处理中，附失败用例（SOP §4 红回退要求）
-        row.status = "in_progress"
-        row.gate_result = _format_gate_summary(gate, passed=False)
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    await db.commit()
-    return {**_serialize_ticket(row), "gate": gate}
 
 
 def _format_gate_summary(gate: dict[str, Any], *, passed: bool) -> str:
@@ -351,32 +554,37 @@ def run_router_gate() -> dict[str, Any]:
 
 
 async def confirm_ticket_release(db: AsyncSession, ticket_id: int) -> dict[str, Any]:
-    """技术超管"确认上线" → 铁律：必须 awaiting_gate 且再跑门禁一次仍绿。
+    """确认上线：乐观锁校验版本锚，通过后前移 released baseline。"""
+    from src.eval.baseline import set_released_baseline_run_id
+    from src.eval.set_version import get_eval_set_version, get_pipeline_version
 
-    任何角色（含技术超管本人）不得跳过门禁。门禁红 → 退回 in_progress 且拒绝请求；
-    门禁绿 → 状态置 released，并回填关联 finding/suggestion/agent_run 为 fixed。
-    """
     row = await db.get(ImprovementTicket, ticket_id)
     if not row:
         raise LookupError("ticket not found")
-    if row.status != "awaiting_gate":
-        # SOP §6 铁律：不在 awaiting_gate 直接拒绝（如 in_progress / rejected / released 状态都不允许）
-        raise ValueError(f"ticket must be in awaiting_gate (current: {row.status})")
-    gate = run_router_gate()
-    if not gate.get("passed"):
-        row.status = "in_progress"
-        row.gate_result = _format_gate_summary(gate, passed=False)
-        row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        await db.commit()
-        # 上抛给 endpoint，让前端能弹出"门禁失败，已退回处理中"的提示
-        raise ValueError(f"router gate failed: {gate.get('summary')}")
-    row.status = "released"
-    row.gate_result = _format_gate_summary(gate, passed=True)
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    # 回填关联 finding/suggestion 状态 fixed（mock 内存级）
+    st = row.status
+    if st not in {"gate_passed", "awaiting_gate"}:
+        raise ValueError(f"ticket must be gate_passed (current: {st})")
+    if not row.linked_run_id or not row.gate_eval_set_version or not row.gate_pipeline_version:
+        raise ValueError("该工单未经过评测门禁，请先重新提测")
+
+    current_eval = get_eval_set_version()
+    current_pipe = get_pipeline_version()
+    if row.gate_eval_set_version and row.gate_eval_set_version != current_eval:
+        raise ValueError("环境已变更（评测集版本不一致），请重新提测")
+    if row.gate_pipeline_version and row.gate_pipeline_version != current_pipe:
+        raise ValueError("环境已变更（主链路版本不一致），请重新提测")
+    if not row.linked_run_id:
+        raise ValueError("无关联门禁 run，请重新提测")
+
+    # legacy awaiting_gate + 完整门禁锚点 → 按 gate_passed 放行
+    if st == "awaiting_gate":
+        row.status = "gate_passed"
+
+    _apply_ticket_status(row, "released")
+    row.gate_result = f"RELEASED · Run #{row.linked_run_id} · @{_now_iso_short()}"
     _mark_source_fixed(row)
-    # 回填关联 agent_run.review_status=fixed
     await _backfill_agent_run_review_status(db, row)
+    await set_released_baseline_run_id(db, row.linked_run_id)
     await db.commit()
     return _serialize_ticket(row)
 
@@ -421,9 +629,10 @@ async def reject_suggestion(db: AsyncSession, ticket_id: int, reason: str) -> di
     row = await db.get(ImprovementTicket, ticket_id)
     if not row:
         raise LookupError("ticket not found")
-    row.status = "rejected"
+    if row.status != "pending":
+        raise TicketTransitionError("仅待处理工单可驳回")
+    _apply_ticket_status(row, "rejected")
     row.reject_reason = reason.strip()
-    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.commit()
     return _serialize_ticket(row)
 
@@ -747,24 +956,24 @@ def list_mock_review_periods() -> list[dict[str, str]]:
     ]
 
 
-async def seed_demo_tickets(db: AsyncSession) -> None:
-    count = await db.scalar(select(func.count()).select_from(ImprovementTicket)) or 0
-    if count:
-        return
+async def seed_demo_tickets(db: AsyncSession) -> int:
+    """幂等补种演示工单：按 title 缺失则插入，不整表清空。"""
     demos = [
         (
             "让系统能正确回答各部门成本类汇总问题",
             "让系统能正确回答「各部门成本」类汇总问题（解决成本查询被误拒）",
-            {"target": "路由总纲 ROUTER §3 aggregate 判定", "action": "补充成本类部门查询边界", "add_test_case": "tests/router_cases.yaml 新增 1 条"},
+            {"target": "路由总纲 ROUTER §3 aggregate 判定", "action": "补充成本类部门查询边界", "add_test_case": "aggregate 类用例 +1"},
             "05-27复盘",
             "pending",
+            None,
         ),
         (
             "让员工询问考勤补卡制度时系统能给出明确指引",
             "让员工询问考勤补卡制度时，系统能给出明确指引",
-            {"target": "知识库文档", "action": "补充《考勤补卡管理办法》", "add_test_case": "policy 类用例补 1 条"},
+            {"target": "知识库文档", "action": "补充《考勤补卡管理办法》", "add_test_case": "policy 类用例 +1"},
             "05-27复盘",
-            "in_progress",
+            "pending",
+            None,
         ),
         (
             "(驳回)归因有误",
@@ -772,9 +981,16 @@ async def seed_demo_tickets(db: AsyncSession) -> None:
             None,
             "05-20复盘",
             "rejected",
+            None,
         ),
     ]
-    for title, content_biz, draft, source, status in demos:
+    inserted = 0
+    for title, content_biz, draft, source, status, new_ids in demos:
+        exists = await db.scalar(
+            select(ImprovementTicket.id).where(ImprovementTicket.title == title).limit(1)
+        )
+        if exists:
+            continue
         db.add(
             ImprovementTicket(
                 title=title,
@@ -784,11 +1000,15 @@ async def seed_demo_tickets(db: AsyncSession) -> None:
                 status=status,
                 change_target=(draft or {}).get("target") if draft else None,
                 test_requirement=(draft or {}).get("add_test_case") if draft else None,
+                new_case_ids=new_ids,
                 assignee=TECH_SUPER_ADMIN,
                 reject_reason="归因有误" if status == "rejected" else None,
             )
         )
-    await db.commit()
+        inserted += 1
+    if inserted:
+        await db.commit()
+    return inserted
 
 
 async def seed_demo_users(db: AsyncSession, pwd_hash_fn) -> None:

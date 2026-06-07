@@ -3,7 +3,7 @@ import uuid
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import BigInteger, Boolean, Date, Float, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.session import Base
@@ -226,6 +226,10 @@ class ImprovementTicket(Base):
     evidence_run_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     gate_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linked_run_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    gate_eval_set_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gate_pipeline_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    new_case_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
     assignee: Mapped[str] = mapped_column(String(64), nullable=False, default="tech_super_admin")
     # 工单来源关联：从复盘报告采纳建议生成 / 手动创建
     source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
@@ -263,6 +267,11 @@ class EvalRun(Base):
     intent_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     weakness_summary: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    run_type: Mapped[str] = mapped_column(String(16), nullable=False, default="full")
+    source_ticket_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    baseline_run_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    eval_set_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gate_verdict: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     case_results: Mapped[list["EvalCaseResult"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
@@ -286,6 +295,9 @@ class EvalCaseResult(Base):
     judge_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     violations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diff_category: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    pass_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     run: Mapped[EvalRun] = relationship(back_populates="case_results")
@@ -308,3 +320,10 @@ class EvalJudgeFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     case_result: Mapped[EvalCaseResult] = relationship(back_populates="judge_feedbacks")
+
+
+class EvalBaseline(Base):
+    __tablename__ = "eval_baseline"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    released_baseline_run_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

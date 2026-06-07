@@ -843,6 +843,15 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 .td-meta{font-size:12px;color:var(--t3)}
 .td-section{margin:12px 0}
 .td-section-title{font-weight:600;font-size:13px;color:var(--t2);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--bg2)}
+.tkt-eval-supplement{margin-top:12px;padding:12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px}
+.tkt-eval-draft{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;background:#fff;border:1px solid var(--bd);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-word;margin:8px 0;max-height:220px;overflow:auto}
+.tkt-eval-hint{font-size:12px;color:var(--t2);margin:6px 0 10px;line-height:1.5}
+.tkt-eval-ids-wrap{margin-top:10px}
+.tkt-eval-ids-input{width:100%;min-height:56px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;padding:8px;border:1px solid var(--bd);border-radius:6px;resize:vertical;box-sizing:border-box}
+.tkt-eval-id-row{display:flex;align-items:center;gap:8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:4px 0}
+.tkt-eval-id-ok{color:#389e0d}
+.tkt-eval-id-bad{color:#cf1322}
+.tkt-eval-supplement-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .td-content-biz{font-size:14px;color:var(--t1);line-height:1.7}
 .td-draft-row{display:flex;gap:8px;margin:4px 0;font-size:13px;line-height:1.6}
 .td-draft-label{flex-shrink:0;width:46px;color:var(--t3);text-align:right}
@@ -852,32 +861,42 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 .td-impact{font-size:12px;margin-top:2px}
 .tkt-no-link{font-family:monospace;font-size:12px;font-weight:600;color:#1677ff;cursor:pointer}
 .muted{color:var(--t3);font-size:13px}
-.tk-status{display:inline-block;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:500;line-height:1.6;border:1px solid transparent}
+.tk-status{display:inline-block;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:500;line-height:1.4;border:1px solid transparent;white-space:nowrap}
 .tk-st-pending{background:#fff7e6;color:#d46b08;border-color:#ffd591}
 .tk-st-progress{background:#e6f4ff;color:#1677ff;border-color:#91caff}
-.tk-st-gate{background:#f9f0ff;color:#722ed1;border-color:#d3adf7}
+.tk-st-gate-running{background:#e6f4ff;color:#1677ff;border-color:#91caff;display:inline-flex;align-items:center;gap:5px}
+.tk-st-gate-pass{background:#f6ffed;color:#389e0d;border-color:#b7eb8f}
+.tk-st-gate-fail{background:#fff1f0;color:#cf1322;border-color:#ffa39e}
+.tk-st-released{background:#f5f5f5;color:#595959;border-color:#d9d9d9}
+.tk-st-legacy{background:#fff7e6;color:#ad6800;border-color:#ffd591}
 .tk-st-done{background:#f6ffed;color:#389e0d;border-color:#b7eb8f}
 .tk-st-rejected{background:#fff1f0;color:#cf1322;border-color:#ffa39e}
 .tk-st-hold{background:#fffbe6;color:#d48806;border-color:#ffe58f}
 .tk-st-default{background:var(--bg2);color:var(--t2);border-color:var(--bd)}
+.tk-spin{display:inline-block;width:10px;height:10px;border:2px solid #91caff;border-top-color:#1677ff;border-radius:50%;animation:tkSpin .7s linear infinite}
+@keyframes tkSpin{to{transform:rotate(360deg)}}
 .tkt-toolbar{display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap}
 .tkt-filter-label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2)}
 .tkt-filter-select{height:30px;border:1px solid var(--bd);border-radius:4px;padding:0 8px;font-size:13px;background:var(--bg1);color:var(--t1);cursor:pointer}
 .tkt-filter-select:focus{outline:none;border-color:#1677ff}
 .tkt-result-hint{font-size:12px;color:var(--t3);margin-left:4px}
-.tk-cell-biz{max-width:360px;line-height:1.5}
-/* 我的工单列宽 */
-.tkt-mine{min-width:820px;table-layout:fixed}
-.tkt-col-no{width:70px}
-.tkt-col-body{width:auto}
-.tkt-col-src{width:180px}
-.tkt-col-st{width:80px;white-space:nowrap}
-.tkt-col-note{width:140px}
-.tkt-col-ops{width:200px;white-space:nowrap}
-.tkt-mine td{white-space:normal;vertical-align:middle}
-.tkt-mine td:nth-child(1){white-space:nowrap;font-variant-numeric:tabular-nums}
-.tkt-mine td:nth-child(4){white-space:nowrap}
-.tkt-mine td:nth-child(6){white-space:nowrap}
+.tk-cell-biz{line-height:1.45}
+.tkt-table{width:100%;min-width:960px;table-layout:fixed;border-collapse:collapse}
+.tkt-table th,.tkt-table td{padding:8px 10px;vertical-align:middle;line-height:1.45}
+.tkt-table .tkt-col-no{width:72px}
+.tkt-table .tkt-col-body{width:24%}
+.tkt-table .tkt-col-eval{width:148px}
+.tkt-table .tkt-col-src{width:140px}
+.tkt-table .tkt-col-st{width:108px}
+.tkt-table .tkt-col-assignee{width:80px}
+.tkt-table .tkt-col-note{width:112px}
+.tkt-table .tkt-col-ops{width:240px}
+.tkt-table td.tkt-cell-clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tkt-cell-eval{white-space:nowrap}
+.tkt-cell-eval .action-link{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.tkt-ops-cell{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px}
+.tkt-ops-cell .btn{margin:0;flex-shrink:0;white-space:nowrap}
+.tkt-flow-hint{margin-top:10px;font-size:12px}
 
 /* 复盘报告 - 一份报告一个大卡片 */
 .rv-report{border:1px solid var(--bd);border-radius:12px;padding:20px 22px;margin-bottom:18px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.03);transition:box-shadow .15s}
@@ -986,7 +1005,29 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 .ev-gate-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
 .ev-gate-dot.pass{background:#22c55e}
 .ev-gate-dot.fail{background:#ef4444}
-.ev-gate-dot.na{background:#9ca3af}
+.ev-run-tag{display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-right:6px}
+.ev-run-tag.full{background:#f3f4f6;color:#4b5563}
+.ev-run-tag.smoke{background:#dbeafe;color:#1d4ed8}
+.ev-run-tag.gate{background:#f3e8ff;color:#7e22ce}
+.ev-run-type-select{min-width:108px}
+.ev-gate-banner{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-weight:600}
+.ev-gate-banner.pass{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.ev-gate-banner.fail{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.ev-gate-banner.running{background:#eff6ff;color:#1e40af;border:1px solid #93c5fd}
+.ev-gate-banner-sub{font-size:11px;font-weight:400;margin-top:4px;opacity:.9}
+.ev-gate-dot.running{background:#3b82f6;animation:ev-pulse 1.2s ease-in-out infinite}
+@keyframes ev-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ev-diff-pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px}
+.ev-diff-newfail{background:#fee2e2;color:#991b1b}
+.ev-diff-fixed{background:#dcfce7;color:#166534}
+.ev-diff-new{background:#dbeafe;color:#1e40af}
+.ev-diff-flaky{background:#fef9c3;color:#854d0e}
+.ev-diff-unchanged{background:#f3f4f6;color:#6b7280}
+.ev-diff-nobaseline{background:#f3f4f6;color:#9ca3af;border:1px dashed #d1d5db}
+.ev-diff-pill.action-link{text-decoration:none;cursor:pointer}
+.ev-diff-pill.action-link:hover{opacity:.85}
+.ev-run-tag.gate.action-link{text-decoration:none;cursor:pointer}
+.tr-ticket-highlight{background:#fffbe6!important}
 .ev-demo-tag{display:inline-block;font-size:10px;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;padding:1px 5px;margin-right:6px;vertical-align:middle}
 .ev-trigger-wrap{position:relative;display:inline-flex;align-items:stretch}
 .ev-trigger-wrap .ev-trigger-caret{margin-left:-1px;border-left:1px solid rgba(255,255,255,.25);padding-left:6px;padding-right:8px;border-radius:0 6px 6px 0}
@@ -1154,7 +1195,11 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
             <option value="">全部状态</option>
             <option value="pending">待处理</option>
             <option value="in_progress">处理中</option>
-            <option value="awaiting_gate">待验证</option>
+            <option value="gate_running">门禁跑批中</option>
+            <option value="gate_failed">门禁未通过</option>
+            <option value="gate_passed">门禁通过</option>
+            <option value="legacy_retest_pending">待提测（旧流程）</option>
+            <option value="awaiting_gate">待提测（旧流程）</option>
             <option value="released">已上线</option>
             <option value="rejected">已驳回</option>
           </select>
@@ -1163,12 +1208,13 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
           <span class="tkt-result-hint" id="ticketsResultHint"></span>
         </div>
         <div class="table-wrap">
-          <table class="dt admin-table tkt-mine"><thead><tr>
+          <table class="dt admin-table tkt-table"><thead><tr>
             <th class="tkt-col-no">工单#</th>
             <th class="tkt-col-body">内容</th>
+            <th class="tkt-col-eval">关联评测</th>
             <th class="tkt-col-src">来源</th>
             <th class="tkt-col-st">状态</th>
-            <th class="tkt-col-no">负责人</th>
+            <th class="tkt-col-assignee">负责人</th>
             <th class="tkt-col-note">备注</th>
             <th class="tkt-col-ops">操作</th>
           </tr></thead><tbody id="adminTicketsBody"></tbody></table>
@@ -1176,14 +1222,18 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
       </div>
       <div class="admin-pane" id="admin-my-tickets">
         <h2 class="admin-h2">我的工单（技术主管）</h2>
-        <p class="muted">工单"已完成"后自动触发测试门禁，全绿+二次确认才"已上线"。任何人不能跳过门禁。</p>
+        <p class="muted">工单完成改动后触发评测中心门禁跑批；确认上线时校验版本锚，不一致需重新提测。</p>
         <div class="tkt-toolbar">
           <label class="tkt-filter-label">状态</label>
           <select id="myTicketsStatusFilter" class="tkt-filter-select">
             <option value="">全部状态</option>
             <option value="pending">待处理</option>
             <option value="in_progress">处理中</option>
-            <option value="awaiting_gate">待验证</option>
+            <option value="gate_running">门禁跑批中</option>
+            <option value="gate_failed">门禁未通过</option>
+            <option value="gate_passed">门禁通过</option>
+            <option value="legacy_retest_pending">待提测（旧流程）</option>
+            <option value="awaiting_gate">待提测（旧流程）</option>
             <option value="released">已上线</option>
             <option value="rejected">已驳回</option>
           </select>
@@ -1192,15 +1242,17 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
           <span class="tkt-result-hint" id="myTicketsResultHint"></span>
         </div>
         <div class="table-wrap">
-          <table class="dt admin-table tkt-mine"><thead><tr>
+          <table class="dt admin-table tkt-table"><thead><tr>
             <th class="tkt-col-no">工单#</th>
             <th class="tkt-col-body">内容</th>
+            <th class="tkt-col-eval">关联评测</th>
             <th class="tkt-col-src">来源</th>
             <th class="tkt-col-st">状态</th>
             <th class="tkt-col-note">备注</th>
             <th class="tkt-col-ops">操作</th>
           </tr></thead><tbody id="adminMyTicketsBody"></tbody></table>
         </div>
+        <p class="muted tkt-flow-hint">待处理 →（接单）→ 处理中 →（标记完成·复跑门禁）→ 门禁跑批中 → 门禁未通过 ↩（重新提测）/ 门禁通过 →（确认上线·版本一致即放行）→ 已上线</p>
       </div>
       <div class="admin-pane" id="admin-eval">
         <div class="ev-eval-head">
@@ -1208,8 +1260,11 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
           <p class="muted">确定性断言与新挂对比参与发版门禁；grader 打分仅看趋势、不拦上线。<br>跑批现场重跑当前系统，不读历史 trace。</p>
           <div class="ev-eval-actions">
             <div id="evalTriggerWrap" style="display:none;gap:8px;flex-wrap:wrap;align-items:center">
-              <button class="btn btn-primary btn-sm" id="evalTriggerFull" onclick="triggerEvalRun(false)">开始评测</button>
-              <button type="button" class="btn btn-sm" id="evalTriggerL1" onclick="triggerEvalRun(true)">快速检查 · 仅意图层 ≈30秒</button>
+              <select id="evalRunTypeSelect" class="tkt-filter-select ev-run-type-select" aria-label="评测类型">
+                <option value="full">全量评测</option>
+                <option value="l1_smoke">L1 冒烟</option>
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="evalTriggerBtn" onclick="triggerEvalRun()">开始评测</button>
             </div>
             <span class="muted" id="evalTriggerStatus"></span>
           </div>
@@ -1217,6 +1272,7 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
         <div class="ev-workspace">
           <aside class="ev-sidebar">
             <div class="rv-section-title ev-sidebar-title">历史跑批</div>
+            <div id="evalRunTypeChips" class="ev-type-chips" style="margin-bottom:8px"></div>
             <div class="ev-run-list-scroll">
               <div class="ev-run-list" id="evalRunList"><div class="rv-empty">加载中…</div></div>
             </div>
@@ -1480,6 +1536,7 @@ select.form-control:disabled{background-image:url("data:image/svg+xml;utf8,<svg 
 const BU = ['杭综部门','杭抖部门','职能部门'];
 const APPROVAL_STATUS = ['已批准','待批准','审批中','已拒绝','已撤回'];
 const API_BASE = '/api/v1';
+window.API_BASE = API_BASE;
 const AUTH = {
   token: localStorage.getItem('hr_token') || '',
   role: localStorage.getItem('hr_role') || '',
@@ -1569,12 +1626,28 @@ async function submitLoginForm(){
   const username=($('loginUser')?.value||'').trim();
   const password=$('loginPass')?.value||'';
   if(!username||!password){ toast('请输入账号和密码','danger'); return; }
+  const btn=document.querySelector('#loginModal .btn-primary');
+  const prevText=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='登录中…'; }
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), 15000);
   try{
-    if(window.authLogin) await window.authLogin(username, password);
-    else await authLogin(username, password);
+    const loginFn=window.authLogin||authLogin;
+    const data=await Promise.race([
+      loginFn(username, password),
+      new Promise((_,reject)=>{
+        ctrl.signal.addEventListener('abort',()=>reject(new Error('请求超时，请确认后端已启动（docker compose up）')));
+      }),
+    ]);
+    return data;
   }
   catch(err){ toast('登录失败：'+(err.message||'账号或密码错误'),'danger'); }
+  finally{
+    clearTimeout(timer);
+    if(btn){ btn.disabled=false; btn.textContent=prevText||'登录'; }
+  }
 }
+window.submitLoginForm = submitLoginForm;
 function renderAuthBar(){
   const el=$('authBar'); if(!el)return;
   if(!AUTH.token){
@@ -3200,6 +3273,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderAdminNav && renderAdminNav();
 });
 </script>
-<script src="permission-admin.js?v=pr6-eval-split-scroll-20260605"></script>
+<script src="permission-admin.js?v=manual-eval-case-20260607"></script>
 </body>
 </html>

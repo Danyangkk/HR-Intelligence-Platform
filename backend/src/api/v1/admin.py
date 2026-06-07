@@ -18,10 +18,11 @@ from src.schemas.admin import (
     TicketNoteRequest,
     UpdateUserRequest,
 )
-from src.services.admin_users import create_user, list_users, update_user
+from src.services.audit import write_audit
 from src.services.improvement_tickets import (
     MOCK_REVIEW_REPORT,
     MOCK_REVIEW_REPORTS,
+    TicketTransitionError,
     accept_ticket,
     add_ticket_note,
     confirm_ticket_release,
@@ -32,8 +33,10 @@ from src.services.improvement_tickets import (
     list_mock_review_reports,
     list_tickets,
     mark_ticket_done,
+    retest_ticket_gate,
     reject_suggestion,
     seed_demo_tickets,
+    update_ticket_new_case_ids,
     withdraw_ticket,
 )
 from src.services.review_suggestions import (
@@ -51,9 +54,13 @@ from src.services.eval_service import (
     get_eval_run_detail,
     get_run_diff,
     list_eval_runs,
+    resolve_gate_l1_threshold,
+    resolve_gate_assert_threshold,
+    set_eval_baseline,
     list_run_cases,
     submit_judge_feedback,
 )
+from src.eval.case_draft import list_eval_case_ids
 from src.eval.demo_seed import seed_eval_demo
 from src.services.payroll_access import (
     create_confirm_token,
@@ -75,9 +82,22 @@ from src.services.rbac import (
     can_view_review_reports,
     normalize_role,
 )
-from src.models import User
+from src.models import ImprovementTicket, User
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _ticket_value_error_response(exc: ValueError) -> dict[str, Any]:
+    msg = str(exc)
+    if isinstance(exc, TicketTransitionError):
+        return fail(422, msg)
+    if "非法状态转移" in msg or "仅待处理工单" in msg:
+        return fail(422, msg)
+    if "工单未声明评测用例" in msg or "不在评测集中" in msg:
+        return fail(422, msg)
+    if "未经过评测门禁" in msg or "重新提测" in msg or "环境已变更" in msg:
+        return fail(422, msg)
+    return fail(400, msg)
 
 
 def _require(user: CurrentUser, check) -> None:
@@ -525,12 +545,107 @@ async def ticket_accept(
     except LookupError:
         return fail(404, "ticket not found")
     except ValueError as exc:
-        return fail(400, str(exc))
+        return _ticket_value_error_response(exc)
+
+
+@router.patch("/tickets/{ticket_id}/new-cases")
+async def ticket_update_new_cases(
+    ticket_id: int,
+    body: dict[str, Any] | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_operate_tickets(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    raw = (body or {}).get("new_case_ids")
+    if raw is None or not isinstance(raw, list):
+        return fail(400, "new_case_ids must be a list")
+    try:
+        return ok(
+            await update_ticket_new_case_ids(
+                db,
+                ticket_id,
+                [str(x) for x in raw],
+            )
+        )
+    except LookupError:
+        return fail(404, "ticket not found")
+    except ValueError as exc:
+        return _ticket_value_error_response(exc)
 
 
 @router.post("/tickets/{ticket_id}/complete")
 async def ticket_complete(
     ticket_id: int,
+    background_tasks: BackgroundTasks,
+    body: dict[str, Any] | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_operate_tickets(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    new_case_ids = (body or {}).get("new_case_ids")
+    if new_case_ids is not None and not isinstance(new_case_ids, list):
+        return fail(400, "new_case_ids must be a list")
+    try:
+        payload = await mark_ticket_done(
+            db,
+            ticket_id,
+            new_case_ids=new_case_ids,
+            triggered_by=user.username or TECH_SUPER_ADMIN,
+        )
+        gate_run = payload.get("gate_run") or {}
+        run_id = gate_run.get("run_id")
+        new_ids = gate_run.get("new_case_ids") or []
+
+        from src.db.session import AsyncSessionLocal
+        from src.eval.runner import finalize_gate_run_for_ticket, run_eval_batch
+        from src.models import EvalRun
+
+        async def _gate_bg(rid: int, tid: int, case_ids: list[str]) -> None:
+            async with AsyncSessionLocal() as bg_db:
+                try:
+                    await run_eval_batch(
+                        bg_db,
+                        run_id=rid,
+                        run_type="gate",
+                        trigger="ticket_gate",
+                        triggered_by=user.username,
+                        new_case_ids=case_ids,
+                    )
+                    await finalize_gate_run_for_ticket(
+                        bg_db, run_id=rid, ticket_id=tid, new_case_ids=case_ids
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    import logging
+                    logging.getLogger("ticket.gate").exception("gate run failed: %s", exc)
+                    row = await bg_db.get(EvalRun, rid)
+                    ticket = await bg_db.get(ImprovementTicket, tid)
+                    if row:
+                        row.status = "failed"
+                        row.notes = str(exc)[:500]
+                    if ticket:
+                        ticket.status = "gate_failed"
+                        ticket.gate_result = f"FAIL · run error: {exc}"[:500]
+                    await bg_db.commit()
+
+        if run_id:
+            background_tasks.add_task(_gate_bg, run_id, ticket_id, new_ids)
+        return ok(payload)
+    except LookupError:
+        return fail(404, "ticket not found")
+    except ValueError as exc:
+        return _ticket_value_error_response(exc)
+
+
+@router.post("/tickets/{ticket_id}/retest")
+async def ticket_retest(
+    ticket_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -539,11 +654,47 @@ async def ticket_complete(
     if not can_operate_tickets(normalize_role(user.role)):
         return fail(403, "forbidden")
     try:
-        return ok(await mark_ticket_done(db, ticket_id))
+        payload = await retest_ticket_gate(db, ticket_id, triggered_by=user.username or TECH_SUPER_ADMIN)
+        gate_run = payload.get("gate_run") or {}
+        run_id = gate_run.get("run_id")
+        new_ids = gate_run.get("new_case_ids") or []
+
+        from src.db.session import AsyncSessionLocal
+        from src.eval.runner import finalize_gate_run_for_ticket, run_eval_batch
+        from src.models import EvalRun, ImprovementTicket
+
+        async def _gate_bg(rid: int, tid: int, case_ids: list[str]) -> None:
+            async with AsyncSessionLocal() as bg_db:
+                try:
+                    await run_eval_batch(
+                        bg_db,
+                        run_id=rid,
+                        run_type="gate",
+                        trigger="ticket_gate",
+                        triggered_by=user.username,
+                        new_case_ids=case_ids,
+                    )
+                    await finalize_gate_run_for_ticket(
+                        bg_db, run_id=rid, ticket_id=tid, new_case_ids=case_ids
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    import logging
+                    logging.getLogger("ticket.gate").exception("gate retest failed: %s", exc)
+                    row = await bg_db.get(EvalRun, rid)
+                    ticket = await bg_db.get(ImprovementTicket, tid)
+                    if row:
+                        row.status = "failed"
+                    if ticket:
+                        ticket.status = "gate_failed"
+                    await bg_db.commit()
+
+        if run_id:
+            background_tasks.add_task(_gate_bg, run_id, ticket_id, new_ids)
+        return ok(payload)
     except LookupError:
         return fail(404, "ticket not found")
     except ValueError as exc:
-        return fail(400, str(exc))
+        return _ticket_value_error_response(exc)
 
 
 @router.post("/tickets/{ticket_id}/release")
@@ -561,7 +712,7 @@ async def ticket_release(
     except LookupError:
         return fail(404, "ticket not found")
     except ValueError as exc:
-        return fail(400, str(exc))
+        return _ticket_value_error_response(exc)
 
 
 @router.post("/tickets/{ticket_id}/reject")
@@ -579,6 +730,8 @@ async def ticket_reject(
         return ok(await reject_suggestion(db, ticket_id, body.reason))
     except LookupError:
         return fail(404, "ticket not found")
+    except ValueError as exc:
+        return _ticket_value_error_response(exc)
 
 
 @router.post("/tickets/{ticket_id}/notes")
@@ -658,6 +811,7 @@ async def validate_token(
 @router.get("/eval/runs")
 async def eval_runs_list(
     limit: int = Query(20, ge=1, le=100),
+    run_type: str | None = Query(None, description="full | l1_smoke | gate"),
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -665,9 +819,33 @@ async def eval_runs_list(
         return fail(401, "请先登录")
     if not can_view_eval_center(normalize_role(user.role)):
         return fail(403, "forbidden")
-    items = await list_eval_runs(db, limit=limit)
+    items = await list_eval_runs(db, limit=limit, run_type=run_type)
     total = await count_eval_runs(db)
     return ok({"items": items, "total": total})
+
+
+@router.get("/eval/config")
+async def eval_config(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_view_eval_center(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    threshold = await resolve_gate_assert_threshold(db)
+    return ok({"gate_assert_threshold": threshold, "gate_l1_threshold": threshold})
+
+
+@router.get("/eval/case-ids")
+async def eval_case_ids(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_operate_tickets(normalize_role(user.role)):
+        return fail(403, "forbidden")
+    return ok(list_eval_case_ids())
 
 
 @router.get("/eval/runs/{run_id}")
@@ -688,24 +866,51 @@ async def eval_run_detail(
     return ok(data)
 
 
+@router.post("/eval/runs/{run_id}/set-baseline")
+async def eval_set_baseline(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    if not user.authenticated:
+        return fail(401, "请先登录")
+    if not can_operate_tickets(normalize_role(user.role)):
+        return fail(403, "仅技术超管可设定基线")
+    try:
+        payload = await set_eval_baseline(db, run_id)
+        await write_audit(
+            db,
+            actor=user.username,
+            action="eval.set_baseline",
+            target_id=str(run_id),
+            detail={"run_id": run_id},
+        )
+        return ok(payload)
+    except LookupError:
+        return fail(404, "eval run not found")
+    except ValueError as exc:
+        return fail(422, str(exc))
+
+
 @router.post("/eval/runs")
 async def eval_runs_trigger(
     background_tasks: BackgroundTasks,
-    only_layer1: bool = Query(False, description="仅跑 Layer1（最快，不调全流程也不调 LLM-as-judge）"),
+    only_layer1: bool = Query(False, description="兼容旧参数；等同 run_type=l1_smoke"),
+    run_type: str | None = Query(None, description="full | l1_smoke（门禁仅工单触发）"),
     case_limit: int | None = Query(None, ge=1, le=200, description="仅跑前 N 条，测试用"),
     version: str | None = Query(None, description="版本标签，默认 MMDD-HHmm；可传自定义如 v1.4.0"),
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """触发一次评测跑批。后台异步跑，立即返回 run_id；前端轮询 detail 看进度。
-
-    only_layer1=true：仅跑 Layer1（< 30 秒），适合快速验证 Planner 是否回归。
-    only_layer1=false：跑全部三层（包含 LLM-as-judge × N 次，需要 5-10 分钟）。
-    """
+    """触发一次评测跑批。后台异步跑，立即返回 run_id；前端轮询 detail 看进度。"""
     if not user.authenticated:
         return fail(401, "请先登录")
     if not can_view_eval_center(normalize_role(user.role)):
         return fail(403, "forbidden")
+    if run_type == "gate":
+        return fail(400, "门禁跑批仅能从工单触发")
+
+    rt = run_type or ("l1_smoke" if only_layer1 else "full")
 
     from src.db.session import AsyncSessionLocal
     from src.eval.runner import create_eval_run, run_eval_batch
@@ -719,6 +924,7 @@ async def eval_runs_trigger(
         trigger="manual",
         triggered_by=user.username,
         case_limit=case_limit,
+        run_type=rt,
     )
 
     async def _run_bg(rid: int) -> None:
@@ -730,6 +936,7 @@ async def eval_runs_trigger(
                     version=ver,
                     trigger="manual",
                     triggered_by=user.username,
+                    run_type=rt,
                     only_layer1=only_layer1,
                     case_limit=case_limit,
                 )
@@ -746,6 +953,7 @@ async def eval_runs_trigger(
     return ok({
         "run_id": run_id,
         "message": "评测跑批已启动（后台运行）",
+        "run_type": rt,
         "only_layer1": only_layer1,
         "case_limit": case_limit,
         "version": ver,
