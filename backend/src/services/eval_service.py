@@ -959,7 +959,7 @@ async def compute_judge_calibration(
             )
         else:
             stmt = stmt.where(EvalCaseResult.run_id == run_id)
-    stmt = stmt.order_by(desc(EvalJudgeFeedback.created_at))
+    stmt = stmt.order_by(desc(EvalJudgeFeedback.created_at), desc(EvalJudgeFeedback.id))
     rows = (await db.execute(stmt)).all()
     latest_by_case: dict[int, tuple[float, int]] = {}
     for fb, case_row in rows:

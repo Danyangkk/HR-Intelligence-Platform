@@ -9,10 +9,10 @@ from sqlalchemy import func, select
 
 from src.db.session import AsyncSessionLocal
 from src.eval.demo_seed import (
-    DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS,
     DEMO_RUN_B_VERSION,
     DEMO_TRIGGER,
     delete_demo_eval_runs,
+    demo_calibration_expected_agreement_rate,
     demo_calibration_unique_samples,
     demo_feedback_counts,
     demo_run_spec,
@@ -23,7 +23,7 @@ from src.services.eval_service import compute_judge_calibration, submit_judge_fe
 
 
 @pytest.mark.asyncio
-async def test_demo_run_b_has_22_calibration_samples():
+async def test_demo_run_b_has_calibration_samples():
     async with AsyncSessionLocal() as db:
         await seed_eval_demo(db, force=True, now=datetime(2026, 6, 5, 14, 0))
         run = await db.scalar(
@@ -51,7 +51,7 @@ async def test_demo_run_b_has_22_calibration_samples():
         run_b_spec = demo_run_spec(DEMO_RUN_B_VERSION)
         fb_total, agree_exp, disagree_exp = demo_feedback_counts(run_b_spec)
         cal_unique = demo_calibration_unique_samples(run_b_spec)
-        lo, hi = DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS
+        expected_rate = demo_calibration_expected_agreement_rate(cal_unique)
         assert fb_count == fb_total
         assert agree == agree_exp
         assert disagree == disagree_exp
@@ -59,15 +59,14 @@ async def test_demo_run_b_has_22_calibration_samples():
         cal = await compute_judge_calibration(db, run_id=run.id)
         assert cal["sample_count"] == cal_unique
         assert cal["insufficient"] is False
-        assert cal["agreement_rate"] is not None
-        assert lo <= cal["agreement_rate"] <= hi
+        assert cal["agreement_rate"] == pytest.approx(expected_rate, abs=1e-4)
 
         await delete_demo_eval_runs(db)
 
 
 @pytest.mark.asyncio
 async def test_demo_run_c_calibration_includes_seed_pool():
-    """v1.4.1 (#407 scenario): seed 22 on v1.4.0 + 1 demo feedback → 23 samples."""
+    """v1.4.1: seed pool on v1.4.0 + 1 demo session feedback on run C."""
     async with AsyncSessionLocal() as db:
         await seed_eval_demo(db, force=True, now=datetime(2026, 6, 5, 14, 0))
         run_c = await db.scalar(
@@ -88,12 +87,13 @@ async def test_demo_run_c_calibration_includes_seed_pool():
             note="demo session",
             created_by="tech_admin",
         )
+        pool_n = demo_calibration_unique_samples() + 1
         cal = await compute_judge_calibration(db, run_id=run_c.id)
-        assert cal["sample_count"] == demo_calibration_unique_samples() + 1
+        assert cal["sample_count"] == pool_n
         assert cal["insufficient"] is False
-        assert cal["agreement_rate"] is not None
-        lo, hi = DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS
-        assert lo <= cal["agreement_rate"] <= hi
+        assert cal["agreement_rate"] == pytest.approx(
+            demo_calibration_expected_agreement_rate(pool_n), abs=1e-4
+        )
         await delete_demo_eval_runs(db)
 
 
@@ -217,7 +217,10 @@ async def test_demo_resubmit_updates_calibration_without_double_count():
             )
         )
         cal_before = await compute_judge_calibration(db, run_id=run_b.id)
-        assert cal_before["sample_count"] == demo_calibration_unique_samples()
+        n = demo_calibration_unique_samples()
+        rate_before = demo_calibration_expected_agreement_rate(n)
+        assert cal_before["sample_count"] == n
+        assert cal_before["agreement_rate"] == pytest.approx(rate_before, abs=1e-4)
 
         await submit_judge_feedback(
             db,
@@ -228,8 +231,8 @@ async def test_demo_resubmit_updates_calibration_without_double_count():
             created_by="tech_admin",
         )
         cal_after = await compute_judge_calibration(db, run_id=run_b.id)
-        assert cal_after["sample_count"] == demo_calibration_unique_samples()
-        assert cal_after["agreement_rate"] is not None
+        assert cal_after["sample_count"] == n
+        assert cal_after["agreement_rate"] == pytest.approx(rate_before - 1 / n, abs=1e-4)
         assert cal_after["agreement_rate"] < cal_before["agreement_rate"]
 
         await delete_demo_eval_runs(db)

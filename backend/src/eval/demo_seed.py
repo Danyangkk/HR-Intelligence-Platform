@@ -20,9 +20,10 @@ from src.services.improvement_tickets import DEMO_TICKET_TITLES
 DEMO_TRIGGER = "demo"
 GATE_DEMO_NEW_CASE = "e-tkt-016-1"
 DEMO_RUN_B_VERSION = "v1.4.0"
-DEMO_CALIBRATION_DISAGREE_COUNT = 4
-DEMO_CALIBRATION_EXTRA_AGREE = 2
-DEMO_CALIBRATION_AGREEMENT_RATE_BOUNDS = (0.82, 0.88)
+# 校准种子：按 case_id 显式指定 disagree（禁止 e-cmp-1 / e-policy-1，留给改判测试）
+DEMO_DISAGREE_STRICT_CASE_IDS = frozenset({"e-lookup-1", "e-list-1", "e-agg-1"})
+DEMO_DISAGREE_SOFT_CASE_ID = "e-agg-2"
+DEMO_DISAGREE_CASE_IDS = DEMO_DISAGREE_STRICT_CASE_IDS | {DEMO_DISAGREE_SOFT_CASE_ID}
 
 # Layer pass/fail overrides per run (case_id → set of failing layers)
 RUN_A_L1_FAIL = frozenset({"e-policy-1", "e-agg-2"})
@@ -338,12 +339,26 @@ def demo_expected_grader_avg(spec: DemoRunSpec, cases: list[dict[str, Any]] | No
 
 
 def demo_feedback_counts(spec: DemoRunSpec, cases: list[dict[str, Any]] | None = None) -> tuple[int, int, int]:
-    """Return (total_rows, agree_rows, disagree_rows) for _seed_feedback on this spec."""
+    """Return (total_rows, agree_rows, disagree_rows) — one feedback row per L3 case."""
     l3_count = demo_l3_case_count(spec, cases)
-    total = l3_count + DEMO_CALIBRATION_EXTRA_AGREE
-    disagree = min(DEMO_CALIBRATION_DISAGREE_COUNT, l3_count)
-    agree = total - disagree
-    return total, agree, disagree
+    disagree = sum(
+        1
+        for c in (cases or load_eval_set())
+        if 3 in spec.layers
+        and 3 in (c.get("layer") or [])
+        and c["id"] in DEMO_DISAGREE_CASE_IDS
+    )
+    agree = l3_count - disagree
+    return l3_count, agree, disagree
+
+
+def demo_calibration_expected_agreement_rate(sample_count: int | None = None) -> float:
+    """Agreement rate from seed construction: soft disagree counts as agreed."""
+    n = sample_count if sample_count is not None else demo_calibration_unique_samples()
+    if n <= 0:
+        return 0.0
+    strict = len(DEMO_DISAGREE_STRICT_CASE_IDS)
+    return round((n - strict) / n, 4)
 
 
 def demo_calibration_unique_samples(
@@ -374,35 +389,27 @@ def _sync_run_aggregates(run: EvalRun, rows: list[EvalCaseResult]) -> None:
         run.layer3_avg = None
 
 
+def _feedback_verdict_and_human(row: EvalCaseResult) -> tuple[str, int]:
+    cid = row.case_id
+    score = float(row.score)
+    if cid in DEMO_DISAGREE_STRICT_CASE_IDS:
+        return "disagree", 1
+    if cid == DEMO_DISAGREE_SOFT_CASE_ID:
+        return "disagree", int(round(score))
+    return "agree", int(round(score))
+
+
 def _seed_feedback(rows: list[EvalCaseResult]) -> list[EvalJudgeFeedback]:
     l3_rows = [r for r in rows if r.layer == 3 and r.score is not None]
     feedbacks: list[EvalJudgeFeedback] = []
-    # 22 samples: 18 agree + 4 disagree (2 cases get an extra agree for count)
-    for i, row in enumerate(l3_rows):
-        human = int(round(float(row.score)))
-        verdict = "agree"
-        if i < 4:
-            verdict = "disagree"
-            rounded = int(round(float(row.score)))
-            # 3 条严格 disagree + 1 条距 judge ≤1，使 21 条 L3 时校准率落在 0.82–0.88
-            human = max(1, rounded - 1) if i == 3 else 1
+    for row in l3_rows:
+        verdict, human = _feedback_verdict_and_human(row)
         feedbacks.append(
             EvalJudgeFeedback(
                 case_result_id=row.id,
                 verdict=verdict,
                 human_overall=human,
                 note="demo seed" if verdict == "agree" else "demo 人工校准样本",
-                created_by="tech_admin",
-            )
-        )
-    # 2 extra agree samples on first cases to reach 22
-    for row in l3_rows[:2]:
-        feedbacks.append(
-            EvalJudgeFeedback(
-                case_result_id=row.id,
-                verdict="agree",
-                human_overall=int(round(float(row.score))),
-                note="demo seed extra",
                 created_by="tech_admin",
             )
         )
