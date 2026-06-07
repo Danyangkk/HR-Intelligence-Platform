@@ -83,3 +83,16 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
         run: pytest backend/tests -m "not online" -q
+
+  fresh-clone-smoke:
+    name: Fresh clone smoke (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fresh clone smoke
+        run: sh backend/scripts/fresh_clone_smoke.sh
+
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color

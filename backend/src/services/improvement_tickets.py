@@ -956,19 +956,21 @@ def list_mock_review_periods() -> list[dict[str, str]]:
     ]
 
 
+# Fresh-clone demo tickets (one per workflow state). Wired to eval gate runs in demo_seed.
+DEMO_TICKET_TITLES = {
+    "pending": "【演示】待处理·考勤补卡制度指引",
+    "in_progress": "【演示】处理中·各部门成本汇总",
+    "gate_failed": "【演示】门禁未通过·人均成本汇总",
+    "gate_passed": "【演示】门禁通过·年终奖核算",
+    "released": "【演示】已上线·路由聚合边界",
+}
+
+
 async def seed_demo_tickets(db: AsyncSession) -> int:
-    """幂等补种演示工单：按 title 缺失则插入，不整表清空。"""
+    """幂等补种演示工单：覆盖各状态各 1 张，按 title 缺失则插入。"""
     demos = [
         (
-            "让系统能正确回答各部门成本类汇总问题",
-            "让系统能正确回答「各部门成本」类汇总问题（解决成本查询被误拒）",
-            {"target": "路由总纲 ROUTER §3 aggregate 判定", "action": "补充成本类部门查询边界", "add_test_case": "aggregate 类用例 +1"},
-            "05-27复盘",
-            "pending",
-            None,
-        ),
-        (
-            "让员工询问考勤补卡制度时系统能给出明确指引",
+            DEMO_TICKET_TITLES["pending"],
             "让员工询问考勤补卡制度时，系统能给出明确指引",
             {"target": "知识库文档", "action": "补充《考勤补卡管理办法》", "add_test_case": "policy 类用例 +1"},
             "05-27复盘",
@@ -976,11 +978,35 @@ async def seed_demo_tickets(db: AsyncSession) -> int:
             None,
         ),
         (
-            "(驳回)归因有误",
-            "复盘归因与事实不符，暂不处理",
+            DEMO_TICKET_TITLES["in_progress"],
+            "让系统能正确回答「各部门成本」类汇总问题（解决成本查询被误拒）",
+            {"target": "路由总纲 ROUTER §3 aggregate 判定", "action": "补充成本类部门查询边界", "add_test_case": "aggregate 类用例 +1"},
+            "05-27复盘",
+            "in_progress",
             None,
+        ),
+        (
+            DEMO_TICKET_TITLES["gate_failed"],
+            "让系统能正确回答「人均成本」类部门汇总问题",
+            {"target": "PLANNER_FEW_SHOT", "action": "增加人均类聚合示例", "add_test_case": "aggregate 类用例 +1"},
+            "05-27复盘",
+            "gate_failed",
+            None,
+        ),
+        (
+            DEMO_TICKET_TITLES["gate_passed"],
+            "让员工咨询年终奖核算规则时，系统能给出明确答复",
+            {"target": "知识库文档", "action": "补充《年终奖核算管理办法》", "add_test_case": "policy 类用例 +1"},
+            "05-27复盘",
+            "gate_passed",
+            None,
+        ),
+        (
+            DEMO_TICKET_TITLES["released"],
+            "让系统能正确回答各部门成本类汇总问题",
+            {"target": "路由总纲 ROUTER §3 aggregate 判定", "action": "补充成本类部门查询边界", "add_test_case": "aggregate 类用例 +1"},
             "05-20复盘",
-            "rejected",
+            "released",
             None,
         ),
     ]
@@ -1002,7 +1028,6 @@ async def seed_demo_tickets(db: AsyncSession) -> int:
                 test_requirement=(draft or {}).get("add_test_case") if draft else None,
                 new_case_ids=new_ids,
                 assignee=TECH_SUPER_ADMIN,
-                reject_reason="归因有误" if status == "rejected" else None,
             )
         )
         inserted += 1

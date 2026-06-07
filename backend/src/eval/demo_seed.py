@@ -9,11 +9,16 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.eval.baseline import get_released_baseline_run_id, set_released_baseline_run_id
 from src.eval.loader import load_eval_set
-from src.models import EvalCaseResult, EvalJudgeFeedback, EvalRun
+from src.eval.set_version import get_eval_set_version, get_pipeline_version
+from src.models import EvalCaseResult, EvalJudgeFeedback, EvalRun, ImprovementTicket
+from src.services.eval_service import apply_gate_diff_to_results, compute_gate_verdict
 from src.services.eval_service import compute_metrics_from_case_rows
+from src.services.improvement_tickets import DEMO_TICKET_TITLES
 
 DEMO_TRIGGER = "demo"
+GATE_DEMO_NEW_CASE = "e-tkt-016-1"
 
 # Layer pass/fail overrides per run (case_id → set of failing layers)
 RUN_A_L1_FAIL = frozenset({"e-policy-1", "e-agg-2"})
@@ -56,12 +61,14 @@ class DemoRunSpec:
     version: str
     started_at: datetime
     layers: frozenset[int]
+    run_type: str = "full"
     l1_fail: frozenset[str] = frozenset()
     l2_fail: frozenset[str] = frozenset()
     l3_scores: dict[str, float] = field(default_factory=dict)
     duration_ms: int = 120_000
     seed_feedback: bool = False
     l3_showcase_violations: bool = False
+    gate_new_case_ids: list[str] = field(default_factory=list)
 
 
 def _expected_snapshot(case: dict[str, Any]) -> dict[str, Any]:
@@ -236,6 +243,7 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             version="v1.3.0-基线",
             started_at=base - timedelta(days=3, hours=-2),
             layers=frozenset({1, 2, 3}),
+            run_type="full",
             l1_fail=RUN_A_L1_FAIL,
             l2_fail=RUN_A_L2_FAIL,
             l3_scores=RUN_A_L3_SCORES,
@@ -246,6 +254,7 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             version="v1.4.0",
             started_at=base - timedelta(days=1, hours=3),
             layers=frozenset({1, 2, 3}),
+            run_type="full",
             l1_fail=RUN_B_L1_FAIL,
             l2_fail=RUN_B_L2_FAIL,
             l3_scores=RUN_B_L3_SCORES,
@@ -256,6 +265,7 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             version="v1.4.1",
             started_at=base - timedelta(hours=4),
             layers=frozenset({1, 2, 3}),
+            run_type="full",
             l1_fail=RUN_C_L1_FAIL,
             l2_fail=frozenset(),
             l3_scores=RUN_C_L3_SCORES,
@@ -265,8 +275,28 @@ def _demo_run_specs(now: datetime | None = None) -> list[DemoRunSpec]:
             version=f"{mmdd} 快速检查",
             started_at=base - timedelta(hours=1),
             layers=frozenset({1}),
+            run_type="l1_smoke",
             l1_fail=RUN_B_L1_FAIL,
             duration_ms=28_000,
+        ),
+        DemoRunSpec(
+            version="gate-演示·未通过",
+            started_at=base - timedelta(hours=2),
+            layers=frozenset({1, 2}),
+            run_type="gate",
+            l1_fail=frozenset({*RUN_A_L1_FAIL, "e-lookup-1", GATE_DEMO_NEW_CASE}),
+            l2_fail=frozenset({"e-lookup-1"}),
+            duration_ms=95_000,
+            gate_new_case_ids=[GATE_DEMO_NEW_CASE],
+        ),
+        DemoRunSpec(
+            version="gate-演示·已通过",
+            started_at=base - timedelta(hours=1, minutes=30),
+            layers=frozenset({1, 2}),
+            run_type="gate",
+            l1_fail=RUN_C_L1_FAIL,
+            duration_ms=92_000,
+            gate_new_case_ids=[GATE_DEMO_NEW_CASE],
         ),
     ]
 
@@ -334,6 +364,146 @@ async def delete_demo_eval_runs(db: AsyncSession) -> int:
     return len(demo_ids)
 
 
+async def _insert_demo_run(
+    db: AsyncSession,
+    spec: DemoRunSpec,
+    cases: list[dict[str, Any]],
+    *,
+    baseline_run_id: int | None = None,
+    source_ticket_id: int | None = None,
+) -> EvalRun:
+    finished = spec.started_at + timedelta(milliseconds=spec.duration_ms)
+    profile = "layer1_only" if spec.layers == frozenset({1}) else "full"
+    if spec.run_type == "gate":
+        profile = "gate"
+    run = EvalRun(
+        version=spec.version,
+        trigger=DEMO_TRIGGER,
+        triggered_by="demo_seed",
+        status="done",
+        started_at=spec.started_at,
+        finished_at=finished,
+        duration_ms=spec.duration_ms,
+        total_cases=len(cases),
+        notes=profile,
+        run_type=spec.run_type,
+        baseline_run_id=baseline_run_id,
+        source_ticket_id=source_ticket_id,
+        eval_set_version=get_eval_set_version() if spec.run_type == "gate" else None,
+    )
+    db.add(run)
+    await db.flush()
+
+    result_rows: list[EvalCaseResult] = []
+    for case in cases:
+        for payload in _build_case_rows(
+            case,
+            layers=spec.layers,
+            l1_fail=spec.l1_fail,
+            l2_fail=spec.l2_fail,
+            l3_scores=spec.l3_scores,
+            l3_showcase_violations=spec.l3_showcase_violations,
+        ):
+            row = EvalCaseResult(run_id=run.id, **payload)
+            db.add(row)
+            result_rows.append(row)
+    await db.flush()
+    _sync_run_aggregates(run, result_rows)
+
+    if spec.run_type == "gate":
+        categories = await apply_gate_diff_to_results(
+            db,
+            run.id,
+            baseline_run_id=baseline_run_id,
+            new_case_ids=spec.gate_new_case_ids or None,
+        )
+        verdict, _detail = await compute_gate_verdict(
+            db, run, new_case_ids=spec.gate_new_case_ids or None, categories=categories
+        )
+        run.gate_verdict = verdict
+        await db.flush()
+
+    if spec.seed_feedback:
+        for fb in _seed_feedback(result_rows):
+            db.add(fb)
+    return run
+
+
+async def _load_demo_runs(db: AsyncSession) -> dict[str, EvalRun]:
+    rows = (
+        await db.execute(
+            select(EvalRun).where(EvalRun.trigger == DEMO_TRIGGER).order_by(EvalRun.id)
+        )
+    ).scalars().all()
+    return {r.version: r for r in rows}
+
+
+async def _ensure_released_baseline(db: AsyncSession, runs: dict[str, EvalRun]) -> None:
+    baseline = runs.get("v1.3.0-基线")
+    if not baseline:
+        return
+    current = await get_released_baseline_run_id(db)
+    if current != baseline.id:
+        await set_released_baseline_run_id(db, baseline.id)
+
+
+async def _wire_demo_tickets(db: AsyncSession, runs: dict[str, EvalRun]) -> None:
+    """Link gate-state demo tickets to seeded gate runs (idempotent)."""
+    gate_fail = runs.get("gate-演示·未通过")
+    gate_pass = runs.get("gate-演示·已通过")
+    if not gate_fail and not gate_pass:
+        return
+
+    eval_ver = get_eval_set_version()
+    pipe_ver = get_pipeline_version()
+    titles = DEMO_TICKET_TITLES
+
+    async def _patch(title: str, **fields: Any) -> None:
+        row = await db.scalar(select(ImprovementTicket).where(ImprovementTicket.title == title))
+        if not row:
+            return
+        changed = False
+        for key, val in fields.items():
+            if getattr(row, key) != val:
+                setattr(row, key, val)
+                changed = True
+        if changed:
+            from datetime import timezone
+
+            row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if gate_fail:
+        await _patch(
+            titles["gate_failed"],
+            linked_run_id=gate_fail.id,
+            gate_eval_set_version=eval_ver,
+            gate_pipeline_version=pipe_ver,
+            new_case_ids=[GATE_DEMO_NEW_CASE],
+            gate_result=f"FAIL · Run #{gate_fail.id} · verdict={gate_fail.gate_verdict}",
+        )
+    if gate_pass:
+        await _patch(
+            titles["gate_passed"],
+            linked_run_id=gate_pass.id,
+            gate_eval_set_version=eval_ver,
+            gate_pipeline_version=pipe_ver,
+            new_case_ids=[GATE_DEMO_NEW_CASE],
+            gate_result=(
+                f"PASS · Run #{gate_pass.id} · L1 {gate_pass.layer1_pass}/{gate_pass.layer1_total}"
+            ),
+        )
+        await _patch(
+            titles["released"],
+            linked_run_id=gate_pass.id,
+            gate_eval_set_version=eval_ver,
+            gate_pipeline_version=pipe_ver,
+            new_case_ids=[GATE_DEMO_NEW_CASE],
+            gate_result=f"RELEASED · Run #{gate_pass.id}",
+        )
+
+    await db.commit()
+
+
 async def seed_eval_demo(
     db: AsyncSession, *, force: bool = False, now: datetime | None = None
 ) -> list[int]:
@@ -343,58 +513,101 @@ async def seed_eval_demo(
     force=True: delete all demo runs (and their feedback) then recreate from seed.
     Non-demo runs are never touched.
     """
-    existing = (
-        await db.execute(
-            select(EvalRun.id)
-            .where(EvalRun.trigger == DEMO_TRIGGER)
-            .order_by(EvalRun.id)
-        )
-    ).scalars().all()
-    if existing and not force:
-        return list(existing)
+    specs = _demo_run_specs(now)
+    expected_gate = {s.version for s in specs if s.run_type == "gate"}
+    existing_map = await _load_demo_runs(db)
 
-    await delete_demo_eval_runs(db)
+    if existing_map and not force:
+        missing_gate = expected_gate - set(existing_map)
+        if missing_gate:
+            cases = load_eval_set()
+            baseline = existing_map.get("v1.3.0-基线")
+            baseline_id = baseline.id if baseline else None
+            ticket_rows = (
+                await db.execute(
+                    select(ImprovementTicket).where(
+                        ImprovementTicket.title.in_(
+                            [
+                                DEMO_TICKET_TITLES["gate_failed"],
+                                DEMO_TICKET_TITLES["gate_passed"],
+                            ]
+                        )
+                    )
+                )
+            ).scalars().all()
+            tickets_by_title = {t.title: t for t in ticket_rows}
+            for spec in specs:
+                if spec.version not in missing_gate:
+                    continue
+                source_id = None
+                if spec.version == "gate-演示·未通过":
+                    t = tickets_by_title.get(DEMO_TICKET_TITLES["gate_failed"])
+                    source_id = t.id if t else None
+                elif spec.version == "gate-演示·已通过":
+                    t = tickets_by_title.get(DEMO_TICKET_TITLES["gate_passed"])
+                    source_id = t.id if t else None
+                run = await _insert_demo_run(
+                    db,
+                    spec,
+                    cases,
+                    baseline_run_id=baseline_id,
+                    source_ticket_id=source_id,
+                )
+                existing_map[run.version] = run
+            await db.commit()
+        await _ensure_released_baseline(db, existing_map)
+        await _wire_demo_tickets(db, existing_map)
+        return [r.id for r in sorted(existing_map.values(), key=lambda r: r.id)]
+
+    if existing_map and force:
+        await delete_demo_eval_runs(db)
+        existing_map = {}
+
     cases = load_eval_set()
     created_ids: list[int] = []
+    runs: dict[str, EvalRun] = {}
+    baseline_run_id: int | None = None
 
-    for spec in _demo_run_specs(now):
-        finished = spec.started_at + timedelta(milliseconds=spec.duration_ms)
-        profile = "layer1_only" if spec.layers == frozenset({1}) else "full"
-        run = EvalRun(
-            version=spec.version,
-            trigger=DEMO_TRIGGER,
-            triggered_by="demo_seed",
-            status="done",
-            started_at=spec.started_at,
-            finished_at=finished,
-            duration_ms=spec.duration_ms,
-            total_cases=len(cases),
-            notes=profile,
+    ticket_rows = (
+        await db.execute(
+            select(ImprovementTicket).where(
+                ImprovementTicket.title.in_(
+                    [
+                        DEMO_TICKET_TITLES["gate_failed"],
+                        DEMO_TICKET_TITLES["gate_passed"],
+                    ]
+                )
+            )
         )
-        db.add(run)
-        await db.flush()
+    ).scalars().all()
+    tickets_by_title = {t.title: t for t in ticket_rows}
 
-        result_rows: list[EvalCaseResult] = []
-        for case in cases:
-            for payload in _build_case_rows(
-                case,
-                layers=spec.layers,
-                l1_fail=spec.l1_fail,
-                l2_fail=spec.l2_fail,
-                l3_scores=spec.l3_scores,
-                l3_showcase_violations=spec.l3_showcase_violations,
-            ):
-                row = EvalCaseResult(run_id=run.id, **payload)
-                db.add(row)
-                result_rows.append(row)
-        await db.flush()
-        _sync_run_aggregates(run, result_rows)
-        if spec.seed_feedback:
-            for fb in _seed_feedback(result_rows):
-                db.add(fb)
+    for spec in specs:
+        source_id = None
+        if spec.run_type == "gate":
+            if spec.version == "gate-演示·未通过":
+                t = tickets_by_title.get(DEMO_TICKET_TITLES["gate_failed"])
+                source_id = t.id if t else None
+            elif spec.version == "gate-演示·已通过":
+                t = tickets_by_title.get(DEMO_TICKET_TITLES["gate_passed"])
+                source_id = t.id if t else None
+
+        run = await _insert_demo_run(
+            db,
+            spec,
+            cases,
+            baseline_run_id=baseline_run_id if spec.run_type == "gate" else None,
+            source_ticket_id=source_id,
+        )
+        runs[run.version] = run
         created_ids.append(run.id)
 
+        if spec.version == "v1.3.0-基线":
+            baseline_run_id = run.id
+            await set_released_baseline_run_id(db, run.id)
+
     await db.commit()
+    await _wire_demo_tickets(db, runs)
     return created_ids
 
 

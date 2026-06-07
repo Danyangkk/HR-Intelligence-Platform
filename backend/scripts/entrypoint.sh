@@ -10,10 +10,16 @@ elif [ -f /app/backend/.env.docker ]; then
 fi
 
 echo "Running database migrations..."
-alembic upgrade head
+if ! alembic upgrade head; then
+  echo "FATAL: alembic upgrade head failed — aborting startup" >&2
+  exit 1
+fi
 
 echo "Running seed..."
-python -m src.seed.run
+if ! python -m src.seed.run; then
+  echo "FATAL: demo seed failed — aborting startup" >&2
+  exit 1
+fi
 
 echo "Starting API server..."
 exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload

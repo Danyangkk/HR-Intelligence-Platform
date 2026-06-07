@@ -48,7 +48,7 @@ async def test_demo_seed_metrics_match_case_rows():
         runs = (
             await db.execute(select(EvalRun).where(EvalRun.trigger == DEMO_TRIGGER))
         ).scalars().all()
-        assert len(runs) == 4
+        assert len(runs) == 6
         for run in runs:
             rows = (
                 await db.execute(select(EvalCaseResult).where(EvalCaseResult.run_id == run.id))
@@ -105,6 +105,43 @@ async def test_demo_run_b_regression_story():
         await delete_demo_eval_runs(db)
 
 
+@pytest.mark.asyncio
+async def test_demo_seed_baseline_and_gate_runs():
+    async with AsyncSessionLocal() as db:
+        from src.eval.baseline import get_released_baseline_run_id
+
+        await seed_eval_demo(db, force=True, now=datetime(2026, 6, 5, 14, 0))
+        runs = {r.version: r for r in (await db.execute(select(EvalRun).where(EvalRun.trigger == DEMO_TRIGGER))).scalars()}
+        baseline = runs["v1.3.0-基线"]
+        assert baseline.run_type == "full"
+        assert await get_released_baseline_run_id(db) == baseline.id
+
+        gate_fail = runs["gate-演示·未通过"]
+        gate_pass = runs["gate-演示·已通过"]
+        assert gate_fail.run_type == "gate"
+        assert gate_pass.run_type == "gate"
+        assert gate_fail.baseline_run_id == baseline.id
+        assert gate_fail.gate_verdict == "fail"
+        assert gate_pass.gate_verdict == "pass"
+
+        fail_rows = (
+            await db.execute(
+                select(EvalCaseResult).where(
+                    EvalCaseResult.run_id == gate_fail.id, EvalCaseResult.layer == 1
+                )
+            )
+        ).scalars().all()
+        cats = {r.case_id: r.diff_category for r in fail_rows if r.diff_category}
+        assert "newly_added" in cats.values()
+        assert "new_fail" in cats.values()
+        assert "fixed" in cats.values()
+        assert "unchanged" in cats.values()
+
+        smoke = next(r for r in runs.values() if r.run_type == "l1_smoke")
+        assert smoke is not None
+        await delete_demo_eval_runs(db)
+
+
 def test_coverage_metric_callouts_not_required_for_list():
     data = build_eval_coverage()
     missing_mc = data["completeness"]["missing"]["metric_callouts"]
@@ -113,4 +150,4 @@ def test_coverage_metric_callouts_not_required_for_list():
 
 def test_all_demo_cases_have_expected_snapshots():
     cases = load_eval_set()
-    assert len(cases) == 30
+    assert len(cases) == 31
