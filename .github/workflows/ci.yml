@@ -9,9 +9,6 @@ jobs:
   router-gate:
     name: Router regression (offline)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     services:
       postgres:
         image: pgvector/pgvector:pg15
@@ -40,17 +37,17 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        working-directory: backend
+        run: pip install -r requirements.txt "pytest>=7"
 
       - name: Router regression gate
-        run: pytest tests/test_router.py -m offline -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
+        run: pytest backend/tests/test_router.py -m offline -q
 
   test:
     name: Backend tests (no online LLM)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     services:
       postgres:
         image: pgvector/pgvector:pg15
@@ -79,7 +76,10 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        working-directory: backend
+        run: pip install -r requirements.txt "pytest>=7"
 
       - name: Run tests
-        run: pytest -m "not online" -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
+        run: pytest backend/tests -m "not online" -q
