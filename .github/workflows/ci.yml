@@ -79,6 +79,14 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt "pytest>=7"
 
+      - name: Prepare database
+        working-directory: backend
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
+        run: |
+          alembic upgrade head
+          python -m src.seed.run
+
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
